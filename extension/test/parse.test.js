@@ -11,7 +11,14 @@ const Companies = require('../companies.js');
 const Xlsx = require('../xlsx.js');
 const os = require('node:os');
 
-const load = (f, url) => new JSDOM(fs.readFileSync(path.join(__dirname, '..', '..', f), 'utf8'), { url }).window.document;
+// Le pagine StepStone di esempio non sono nel repo (pesano ~8 MB): indicare la cartella con
+// STEPSTONE_FIXTURES=<cartella> (di default la radice del repo). Senza le pagine i test vengono saltati.
+const FIXTURES = process.env.STEPSTONE_FIXTURES || path.join(__dirname, '..', '..');
+if (!fs.existsSync(path.join(FIXTURES, 'stepston-result-page.html'))) {
+  console.log('SALTATO: pagine di esempio non trovate in ' + FIXTURES + ' (impostare STEPSTONE_FIXTURES).');
+  process.exit(0);
+}
+const load = (f, url) => new JSDOM(fs.readFileSync(path.join(FIXTURES, f), 'utf8'), { url }).window.document;
 let n = 0;
 const ok = (name, fn) => { fn(); n++; console.log('  ✓', name); };
 
@@ -124,6 +131,23 @@ ok('buildCompanies sulle 25 card', () => {
   assert.ok(noInfo.city); // ripiego dalla località dell'annuncio
   const names = rows.map((r) => r.name);
   assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' })));
+});
+
+// ---------- paginazione ----------
+ok('pageSequence: totale noto → tutte le altre pagine, in ordine', () => {
+  assert.deepEqual(Content.pageSequence(1, 4), [2, 3, 4]);
+  assert.equal(Content.pageSequence(1, 37).length, 36);
+  assert.equal(Content.pageSequence(1, 37)[0], 2);
+  assert.deepEqual(Content.pageSequence(5, 8), [1, 2, 3, 4, 6, 7, 8]);
+  assert.deepEqual(Content.pageSequence(1, 1), []);
+});
+ok('pageSequence: oltre 20 pagine e rispetto del tetto', () => {
+  assert.equal(Content.pageSequence(1, 50).length, 49); // il vecchio limite era 20
+  assert.equal(Content.pageSequence(1, 5000, 200).length, 199);
+});
+ok('pageSequence: totale ignoto → solo le pagine precedenti', () => {
+  assert.deepEqual(Content.pageSequence(1, null), []);
+  assert.deepEqual(Content.pageSequence(3, null), [1, 2]);
 });
 
 // ---------- XLSX ----------

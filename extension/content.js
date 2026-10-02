@@ -322,60 +322,132 @@
   // 4. ORCHESTRAZIONE SCRAPING (solo browser)
   // ---------------------------------------------------------------
 
-  async function fetchDoc(url) {
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) throw new Error(`HTTP ${res.status} su ${url}`);
-    return new DOMParser().parseFromString(await res.text(), 'text/html');
-  }
-
   const state = { running: false, cancel: false };
+
+  /** Pause (ms) tra un tentativo e il successivo su 429/503/errori di rete. */
+  const RETRY_DELAYS = [1500, 4000, 8000];
+
+  /**
+   * Scarica e analizza una pagina (stessa origine, cookie inclusi).
+   * Ritenta fino a 3 volte su 429/503 (rispettando Retry-After) e su errori di rete;
+   * gli altri errori HTTP (404, 403…) falliscono subito.
+   */
+  async function fetchDoc(url, attempts = 3) {
+    let lastErr;
+    for (let a = 0; a < attempts; a++) {
+      if (state.cancel) throw new Error('Interrotto');
+      try {
+        const res = await fetch(url, { credentials: 'include' });
+        if (res.ok) return new DOMParser().parseFromString(await res.text(), 'text/html');
+        lastErr = new Error(`HTTP ${res.status} su ${url}`);
+        if (res.status !== 429 && res.status !== 503) { lastErr.fatal = true; throw lastErr; }
+        const retryAfter = parseInt(res.headers.get('Retry-After'), 10);
+        if (a < attempts - 1) await sleep(retryAfter > 0 ? Math.min(retryAfter, 20) * 1000 : RETRY_DELAYS[a]);
+      } catch (e) {
+        if (e.fatal) throw e;
+        lastErr = e; // errore di rete
+        if (a < attempts - 1) await sleep(RETRY_DELAYS[a]);
+      }
+    }
+    throw lastErr;
+  }
 
   const setState = (patch) => chrome.storage.local.set({ scrapeState: { updatedAt: Date.now(), ...patch } });
 
-  /** Esegue fn su ogni elemento con concorrenza limitata e pause casuali (cortesia verso il server). */
-  async function runPool(items, fn, concurrency = 2) {
+  /**
+   * Esegue fn su tutti gli elementi con al massimo `concurrency` chiamate in volo.
+   * Ogni worker prende il prossimo elemento appena libero (code condivisa) e fa una breve
+   * pausa casuale: il ritmo è limitato soprattutto dalla concorrenza. `state.cancel` ferma i worker.
+   */
+  async function runPool(items, fn, concurrency = 5, pause = [150, 400]) {
     let i = 0;
     const worker = async () => {
       while (i < items.length && !state.cancel) {
         await fn(items[i++]);
-        await jitter(500, 1100);
+        if (i < items.length) await jitter(pause[0], pause[1]);
       }
     };
-    await Promise.all(Array.from({ length: concurrency }, worker));
+    await Promise.all(Array.from({ length: Math.min(concurrency, items.length) || 1 }, worker));
+  }
+
+  const clampConcurrency = (n) => Math.min(10, Math.max(1, parseInt(n, 10) || 5));
+
+  /** Tetto di sicurezza sul numero di pagine di una ricerca. */
+  const MAX_PAGES = 200;
+
+  /**
+   * Pagine da scaricare oltre a quella già in mano (`current`), in ordine crescente.
+   * Totale noto → tutte le altre fino a `cap` pagine in tutto.
+   * Totale ignoto → solo quelle precedenti alla corrente (le successive si scoprono a ondate).
+   */
+  function pageSequence(current, total, cap = MAX_PAGES) {
+    const last = total ? Math.min(total, cap) : current - 1;
+    const pages = [];
+    for (let p = 1; p <= last; p++) if (p !== current) pages.push(p);
+    return pages;
   }
 
   async function scrapeSearch(options) {
-    const opts = { maxPages: 3, enrich: false, companyDetails: true, highlight: true, ...options };
+    const opts = { concurrency: 5, enrich: false, companyDetails: true, highlight: true, ...options };
+    opts.concurrency = clampConcurrency(opts.concurrency);
     const warnings = [];
     const href = location.href;
 
     const { profile = {} } = await chrome.storage.local.get('profile');
     const pg = getPagination(document, href);
-    const lastPage = pg.total ? Math.min(pg.total, pg.current + opts.maxPages - 1) : pg.current + opts.maxPages - 1;
-
-    const byId = new Map();
-    const add = (jobs) => jobs.forEach((j) => { const k = j.id || j.url; if (k && !byId.has(k)) byId.set(k, j); });
 
     // --- pagina corrente: DOM live
-    await setState({ status: 'running', text: `Pagina ${pg.current}…`, done: 0, total: lastPage - pg.current + 1 });
-    add(parseResultCards(document, href, warnings));
+    const byPage = new Map(); // n. pagina -> annunci (così l'ordine finale è deterministico)
+    byPage.set(pg.current, parseResultCards(document, href, warnings));
+    const failedPages = [];
 
-    // --- pagine successive: fetch + DOMParser (stessa origine, cookie inclusi)
-    for (let p = pg.current + 1; p <= lastPage && !state.cancel; p++) {
-      await jitter(800, 1500);
-      await setState({ status: 'running', text: `Pagina ${p}/${lastPage}…`, done: p - pg.current, total: lastPage - pg.current + 1 });
+    const rest = pageSequence(pg.current, pg.total);
+    if (pg.total && pg.total > MAX_PAGES) warnings.push(`La ricerca ha ${pg.total} pagine: lette solo le prime ${MAX_PAGES}.`);
+    const totalPages = (pg.total ? Math.min(pg.total, MAX_PAGES) : rest.length + 1);
+    let pagesDone = 1;
+    const progress = () => setState({ status: 'running', text: `Pagine ${pagesDone}/${pg.total ? totalPages : '?'}…`, done: pagesDone, total: pg.total ? totalPages : pagesDone + 1 });
+    await progress();
+
+    /** Scarica una pagina in parallelo alle altre; `expectJobs` = la pagina deve esistere (totale noto). */
+    const fetchPage = async (p, expectJobs) => {
       try {
-        const doc = await fetchDoc(buildPageUrl(href, p));
-        const found = parseResultCards(doc, href, warnings);
-        if (!found.length) { warnings.push(`Pagina ${p}: nessun annuncio (fine risultati o blocco anti-bot).`); break; }
-        add(found);
+        const found = parseResultCards(await fetchDoc(buildPageUrl(href, p)), href, warnings);
+        if (found.length) byPage.set(p, found);
+        else if (expectJobs) { failedPages.push(p); warnings.push(`Pagina ${p}: nessun annuncio (blocco anti-bot o HTML cambiato).`); }
+        return found.length;
       } catch (e) {
-        warnings.push(`Pagina ${p}: ${e.message}`);
-        break;
+        if (!state.cancel) { failedPages.push(p); warnings.push(`Pagina ${p}: ${e.message}`); }
+        return 0;
+      } finally {
+        pagesDone++;
+        await progress();
+      }
+    };
+
+    await runPool(rest, (p) => fetchPage(p, !!pg.total), opts.concurrency);
+
+    // totale non noto: ondate di `concurrency` pagine in avanti finché una non produce annunci
+    if (!pg.total) {
+      let start = pg.current + 1;
+      while (!state.cancel && start <= MAX_PAGES) {
+        const wave = Array.from({ length: Math.min(opts.concurrency, MAX_PAGES - start + 1) }, (_, i) => start + i);
+        const counts = await Promise.all(wave.map((p) => fetchPage(p, false)));
+        if (counts.every((c) => c === 0)) break; // oltre l'ultima pagina
+        start += wave.length;
       }
     }
 
+    // unione in ordine di pagina; dedup per id
+    const byId = new Map();
+    [...byPage.keys()].sort((a, b) => a - b).forEach((p) => {
+      byPage.get(p).forEach((j) => { const k = j.id || j.url; if (k && !byId.has(k)) byId.set(k, j); });
+    });
+    const readPages = [...byPage.keys()];
+    const lastPage = Math.max(...readPages);
+    const firstPage = Math.min(...readPages);
+
     let jobs = Array.from(byId.values());
+
 
     // --- arricchimento opzionale con le pagine di dettaglio
     if (opts.enrich && !state.cancel) {
@@ -395,7 +467,7 @@
           warnings.push(`Dettaglio ${job.id}: ${e.message}`);
         }
         await setState({ status: 'running', text: `Dettagli ${++done}/${jobs.length}…`, done, total: jobs.length });
-      });
+      }, opts.concurrency);
     }
 
     // --- dati aziende (settore, sede, paese): UN solo dettaglio per azienda non ancora coperta
@@ -412,7 +484,7 @@
           warnings.push(`Azienda ${group[0].company}: ${e.message}`);
         }
         await setState({ status: 'running', text: `Aziende ${++done}/${todo.length}…`, done, total: todo.length });
-      });
+      }, opts.concurrency);
     }
 
     // --- matching con il profilo
@@ -426,7 +498,8 @@
         pageUrl: href,
         searchTitle: clean((document.querySelector('h1') || {}).textContent),
         totalResults: pg.totalResults,
-        pagesScraped: [pg.current, lastPage],
+        pagesScraped: [firstPage, lastPage],
+        pagesFailed: failedPages.sort((x, y) => x - y),
         scrapedAt: new Date().toISOString(),
         cancelled: state.cancel,
         warnings: Array.from(new Set(warnings))
@@ -507,7 +580,7 @@
 
   const api = {
     clean, queryFirst, detectPageType, parseResultCards, getPagination, buildPageUrl,
-    parseDetail, parseCompany, extractCompanyPassport, companyIdFromUrl, findJobPosting, extractCardSalary, isSupportedHost
+    pageSequence, runPool, parseDetail, parseCompany, extractCompanyPassport, companyIdFromUrl, findJobPosting, extractCardSalary, isSupportedHost
   };
   root.SSContent = api;
   if (typeof module !== 'undefined') module.exports = api;

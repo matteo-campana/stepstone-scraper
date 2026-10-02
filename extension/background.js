@@ -16,7 +16,7 @@ const SUPPORTED_HOST = /^www\.stepstone\.(de|at|be|nl|fr)$/i;
 const CONTENT_FILES = ['selectors.js', 'match.js', 'companies.js', 'content.js'];
 
 const DEFAULT_PROFILE = { skills: '', years: '', position: '', salaryMin: '', salaryMax: '', locations: '', remote: false };
-const DEFAULT_OPTIONS = { maxPages: 3, enrich: false, companyDetails: true, highlight: true };
+const DEFAULT_OPTIONS = { concurrency: 5, enrich: false, companyDetails: true, highlight: true };
 
 chrome.runtime.onInstalled.addListener(async () => {
   const cur = await chrome.storage.local.get(['profile', 'options']);

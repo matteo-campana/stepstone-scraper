@@ -84,7 +84,7 @@
   // ---------------------------------------------------------------
   function readOptions() {
     return {
-      maxPages: Math.min(20, Math.max(1, parseInt($('maxPages').value, 10) || 1)),
+      concurrency: Math.min(10, Math.max(1, parseInt($('concurrency').value, 10) || 5)),
       enrich: $('enrich').checked,
       companyDetails: $('companyDetails').checked,
       highlight: $('highlight').checked
@@ -117,7 +117,7 @@
 
   /** Aggiorna barra di stato/progresso da scrapeState. */
   function applyState(st) {
-    const stale = st && st.status === 'running' && Date.now() - st.updatedAt > 120000;
+    const stale = st && st.status === 'running' && Date.now() - st.updatedAt > 180000;
     const running = st && st.status === 'running' && !stale;
     $('btnScrape').disabled = running;
     $('btnCancel').hidden = !running;
@@ -183,7 +183,7 @@
     const m = results.meta;
     $('summary').textContent =
       `${jobs.length} annunci (pagine ${m.pagesScraped[0]}–${m.pagesScraped[1]}` +
-      (m.totalResults ? ` di ~${m.totalResults} risultati totali` : '') + ')' + (m.cancelled ? ' — interrotto' : '');
+      (m.totalResults ? ` di ~${m.totalResults} risultati totali` : '') + ')' + (m.pagesFailed && m.pagesFailed.length ? ` — ⚠ pagine non lette: ${m.pagesFailed.join(', ')}` : '') + (m.cancelled ? ' — interrotto' : '');
 
     for (const j of jobs) {
       const tr = document.createElement('tr');
@@ -293,7 +293,7 @@
     const { profile, options, lastResults, scrapeState } = await chrome.storage.local.get(['profile', 'options', 'lastResults', 'scrapeState']);
     fillProfile(profile);
     if (options) {
-      $('maxPages').value = options.maxPages;
+      $('concurrency').value = options.concurrency || 5;
       $('enrich').checked = !!options.enrich;
       $('companyDetails').checked = options.companyDetails !== false;
       $('highlight').checked = options.highlight !== false;

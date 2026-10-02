@@ -50,7 +50,7 @@ Premi **Salva profilo**. Tutto viene salvato in `chrome.storage.local` (solo sul
 1. Su StepStone esegui una ricerca e imposta i filtri che vuoi (parola chiave, luogo, tipo di lavoro, stipendio…). L'estensione usa **l'URL corrente**, quindi tutti i filtri attivi vengono mantenuti.
 2. Apri il popup → scheda **Annunci**.
 3. Imposta:
-   - **Pagine da leggere**: quante pagine di risultati scaricare a partire dalla corrente (una pagina ≈ 25 annunci).
+   - **Richieste in parallelo** (1–10, default 5): l'estensione legge **sempre tutte le pagine** della ricerca corrente (una pagina ≈ 25 annunci, anche oltre le 20 pagine) scaricandole in parallelo. Più richieste = più veloce, ma StepStone può rallentare o bloccare temporaneamente. Se ottieni errori, abbassa il valore. Le ricerche molto ampie, soprattutto con *Leggi anche i dettagli*, possono richiedere diversi minuti: **Ferma** interrompe mantenendo quanto già raccolto.
    - **Leggi anche i dettagli**: apre in background ogni annuncio per ottenere tipo di contratto, modalità di lavoro, descrizione e requisiti. Più preciso, ma molto più lento (≈ 1–2 s per annuncio).
    - **Dati aziende**: per ogni azienda scarica **un solo** annuncio di dettaglio e ne ricava settore, sede e paese (vedi sezione 4). Attivo di default.
    - **Evidenzia l'affinità nella pagina**: aggiunge un badge colorato alle card della pagina corrente.
@@ -111,7 +111,7 @@ Senza l'opzione **Dati aziende** (o *Leggi anche i dettagli*) settore e sede non
 | *Non è una pagina di risultati di ricerca* | Apri una ricerca (`/jobs/...`), non un singolo annuncio o la home. |
 | *La pagina non risponde* | Ricarica la scheda (F5). |
 | Avvisi gialli "Campo … mancante" / "Nessuna card trovata" | StepStone ha cambiato l'HTML: aggiorna i selettori (sezione 5). |
-| "Pagina N: nessun annuncio" o errore HTTP | Fine dei risultati, oppure StepStone sta limitando le richieste: riduci le pagine, attendi, riprova. |
+| "Pagina N: …" / "⚠ pagine non lette" | Una pagina non è stata recuperata (blocco, errore di rete o HTML cambiato). Le altre vengono comunque lette; le richieste rifiutate con 429/503 vengono **ritentate automaticamente** (fino a 3 volte, con attesa crescente). Se restano pagine mancanti, abbassa le richieste in parallelo e rilancia. |
 
 ## 6. Aggiornare i selettori se StepStone cambia l'HTML
 
@@ -130,13 +130,15 @@ Particolarità note, verificate sulle pagine di riferimento:
 - **Dettaglio**: la fonte primaria è il JSON-LD `JobPosting` della pagina, con ripiego sugli attributi `data-at="metadata-*"` / `section-text-*`.
 
 ### Test dei parser
-Il repository contiene due pagine StepStone salvate; i test verificano i selettori su di esse.
+I test verificano i selettori su due pagine StepStone salvate (una di ricerca e una di dettaglio, ~8 MB in tutto, **non incluse nel repository**). Salvale come `stepston-result-page.html` e `stepstone-job-detail-page.html` in una cartella e indicala con `STEPSTONE_FIXTURES` (di default si cerca nella radice del repo; se mancano i test vengono saltati).
 
 ```bash
 cd extension/test
 npm install
-npm test
+STEPSTONE_FIXTURES=/percorso/alle/pagine npm test      # PowerShell: $env:STEPSTONE_FIXTURES="C:\percorso"; npm test
 ```
+
+`npm test` esegue `parse.test.js` (parser, aziende, XLSX) e `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; usa `fetch` simulato dentro jsdom).
 
 I test coprono anche lista aziende, classificazione Main Business e generazione XLSX (rilettura con `openpyxl`, se installato: `pip install openpyxl`).
 
@@ -145,7 +147,7 @@ Dopo aver aggiornato `selectors.js`, salva una nuova pagina di esempio e adatta 
 ## 7. Limiti e uso responsabile
 
 - L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni.
-- Le pagine successive, i dettagli e le schede azienda vengono scaricati con pause casuali (≈ 0,5–1,5 s) e concorrenza 2. Non aumentare in modo aggressivo le pagine: StepStone può limitare o bloccare traffico anomalo.
+- Le pagine successive, i dettagli e le schede azienda vengono scaricati in parallelo (default 5 richieste contemporanee) con brevi pause casuali (≈ 0,15–0,4 s) e ritentativo su 429/503. Non alzare in modo aggressivo le richieste in parallelo: StepStone può limitare o bloccare traffico anomalo. Tetto di sicurezza: 200 pagine per ricerca.
 - Verifica che l'uso sia coerente con i **Termini di servizio di StepStone**; lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
 - Non è prevista la lettura di pagine caricate solo a scorrimento (infinite scroll): StepStone usa paginazione classica (`?page=N`), gestita via URL.
 - Permessi richiesti: `storage` (profilo e risultati), `activeTab` + `scripting` (iniettare il content script in schede già aperte), accesso ai soli domini StepStone elencati.
