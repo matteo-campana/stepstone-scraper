@@ -151,3 +151,25 @@ Dopo aver aggiornato `selectors.js`, salva una nuova pagina di esempio e adatta 
 - Verifica che l'uso sia coerente con i **Termini di servizio di StepStone**; lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
 - Non è prevista la lettura di pagine caricate solo a scorrimento (infinite scroll): StepStone usa paginazione classica (`?page=N`), gestita via URL.
 - Permessi richiesti: `storage` (profilo e risultati), `activeTab` + `scripting` (iniettare il content script in schede già aperte), accesso ai soli domini StepStone elencati.
+
+## 8. Licenza e contributi
+
+Copyright (C) 2026 Matteo Campana
+
+Questo programma è software libero: puoi ridistribuirlo e/o modificarlo secondo i termini della
+**GNU Affero General Public License** come pubblicata dalla Free Software Foundation, nella
+versione 3 della Licenza o (a tua scelta) in qualsiasi versione successiva.
+
+Questo programma è distribuito nella speranza che sia utile, ma **SENZA ALCUNA GARANZIA**; senza
+nemmeno la garanzia implicita di COMMERCIABILITÀ o IDONEITÀ PER UN PARTICOLARE SCOPO. Vedi la
+GNU Affero General Public License per maggiori dettagli. Il testo completo è nel file
+[LICENSE](LICENSE); in alternativa <https://www.gnu.org/licenses/>.
+
+In pratica: se modifichi l'estensione e la distribuisci, o la metti a disposizione degli utenti
+attraverso una rete (clausola AGPL §13), devi rendere disponibile il codice sorgente della tua
+versione con la stessa licenza.
+
+StepStone è un marchio dei rispettivi titolari; questo progetto è indipendente e non è affiliato né
+approvato da StepStone.
+
+Vuoi contribuire? Leggi [CONTRIBUTING.md](CONTRIBUTING.md).

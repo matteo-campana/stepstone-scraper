@@ -1,1 +1,1 @@
-{ "name": "stepstone-scraper-tests", "private": true, "scripts": { "test": "node parse.test.js && node paging.test.js" }, "devDependencies": { "jsdom": "^24.0.0" } }
+{ "name": "stepstone-scraper-tests", "private": true, "license": "AGPL-3.0-or-later", "scripts": { "test": "node parse.test.js && node paging.test.js" }, "devDependencies": { "jsdom": "^24.0.0" } }
