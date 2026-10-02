@@ -95,7 +95,7 @@
     const options = readOptions();
     await chrome.storage.local.set({ options });
     setStatus('Avvio…');
-    $('warnings').innerHTML = '';
+    renderWarnings([]);
     const res = await chrome.runtime.sendMessage({ type: 'START_SCRAPE', options });
     if (!res || !res.ok) setStatus(errText(res && res.error), 'err');
   });
@@ -136,16 +136,6 @@
     $('view-companies').hidden = btn.dataset.view !== 'companies';
   }));
 
-  const linkCell = (href, text) => {
-    const td = document.createElement('td');
-    if (href) {
-      const a = document.createElement('a');
-      a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text;
-      td.appendChild(a);
-    }
-    return td;
-  };
-
   function renderCompanies() {
     const tbody = $('tableCo').tBodies[0];
     tbody.textContent = '';
@@ -153,17 +143,52 @@
     $('cntCompanies').textContent = rows.length ? `(${rows.length})` : '';
     for (const c of rows) {
       const tr = document.createElement('tr');
-      const name = document.createElement('td'); name.textContent = c.name;
+
+      const name = document.createElement('td');
+      name.textContent = c.name;
+      const nJobs = document.createElement('small');
+      nJobs.textContent = c.jobs === 1 ? '1 annuncio' : `${c.jobs} annunci`;
+      name.appendChild(nJobs);
+
       const biz = document.createElement('td');
-      biz.className = 'biz ' + c.business.split(' ')[0];
-      biz.textContent = c.business;
-      const desc = document.createElement('td'); desc.textContent = c.businessDesc;
-      const country = document.createElement('td'); country.textContent = c.country;
-      const city = document.createElement('td'); city.textContent = c.city;
-      const n = document.createElement('td'); n.textContent = c.jobs;
-      tr.append(name, linkCell(c.url, 'StepStone'), linkCell(c.linkedin, 'cerca'), biz, desc, country, city, n);
+      if (c.business) { // vuoto = non classificato con sicurezza: nessun chip
+        const chip = document.createElement('span');
+        chip.className = 'chip ' + c.business;
+        chip.textContent = c.business;
+        biz.appendChild(chip);
+      }
+      if (c.businessDesc) { // settore sotto il chip
+        const desc = document.createElement('small');
+        desc.textContent = c.businessDesc;
+        biz.appendChild(desc);
+      }
+
+      const place = document.createElement('td'); place.textContent = [c.city, c.country].filter(Boolean).join(', ');
+
+      const links = document.createElement('td');
+      links.className = 'links';
+      [[c.url, 'StepStone'], [c.linkedin, 'LinkedIn']].forEach(([href, label]) => {
+        if (!href) return;
+        const a = document.createElement('a');
+        a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = label;
+        links.appendChild(a);
+      });
+
+      tr.append(name, biz, place, links);
       tbody.appendChild(tr);
     }
+  }
+
+  /** Avvisi in un riquadro comprimibile con il conteggio (le liste lunghe non invadono più il popup). */
+  function renderWarnings(list) {
+    $('warnings').textContent = '';
+    list.forEach((w) => {
+      const li = document.createElement('li');
+      li.textContent = w + (/selettor|card|Campo|Contenitore|Dettaglio/i.test(w) ? ' → vedi selectors.js' : '');
+      $('warnings').appendChild(li);
+    });
+    $('warnBox').hidden = list.length === 0;
+    $('warnCount').textContent = list.length === 1 ? '1 avviso' : `${list.length} avvisi`;
   }
 
   function render() {
@@ -173,12 +198,7 @@
     $('cntJobs').textContent = jobs.length ? `(${jobs.length})` : '';
     renderCompanies();
 
-    $('warnings').textContent = '';
-    ((results && results.meta.warnings) || []).forEach((w) => {
-      const li = document.createElement('li');
-      li.textContent = w + (/selettor|card|Campo|Contenitore|Dettaglio/i.test(w) ? ' → vedi selectors.js' : '');
-      $('warnings').appendChild(li);
-    });
+    renderWarnings((results && results.meta.warnings) || []);
 
     if (!jobs.length) { $('summary').textContent = 'Nessun risultato.'; return; }
     const m = results.meta;
@@ -191,9 +211,11 @@
 
       const score = document.createElement('td');
       const s = j.match && j.match.score;
-      score.className = 'score ' + (s == null ? '' : s >= 70 ? 'high' : s >= 40 ? 'mid' : 'low');
-      score.textContent = s == null ? '–' : s + '%';
-      if (j.match && j.match.matchedSkills.length) score.title = 'Skill: ' + j.match.matchedSkills.join(', ');
+      const pill = document.createElement('span');
+      pill.className = 'pill ' + (s == null ? 'low' : s >= 70 ? 'high' : s >= 40 ? 'mid' : 'low');
+      pill.textContent = s == null ? '–' : s + '%';
+      if (j.match && j.match.matchedSkills.length) pill.title = 'Skill: ' + j.match.matchedSkills.join(', ');
+      score.appendChild(pill);
 
       const title = document.createElement('td');
       const a = document.createElement('a');

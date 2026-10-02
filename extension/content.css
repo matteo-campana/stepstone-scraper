@@ -12,8 +12,8 @@
   white-space: nowrap;
   vertical-align: top;
 }
-.ss-match-badge.ss-high { background: #1b8a3a; }
-.ss-match-badge.ss-mid  { background: #b8860b; }
+.ss-match-badge.ss-high { background: #1e8e3e; }
+.ss-match-badge.ss-mid  { background: #fbbc04; color: #202124; }
 .ss-match-badge.ss-low  { background: #8a8f98; }
-[data-ss-level="high"] { outline: 2px solid #1b8a3a !important; outline-offset: -2px; }
-[data-ss-level="mid"]  { outline: 2px solid #b8860b !important; outline-offset: -2px; }
+[data-ss-level="high"] { outline: 2px solid #34a853 !important; outline-offset: -2px; }
+[data-ss-level="mid"]  { outline: 2px solid #fbbc04 !important; outline-offset: -2px; }
