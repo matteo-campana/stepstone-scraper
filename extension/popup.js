@@ -120,6 +120,7 @@
     const stale = st && st.status === 'running' && Date.now() - st.updatedAt > 180000;
     const running = st && st.status === 'running' && !stale;
     $('btnScrape').disabled = running;
+    $('btnClearCache').disabled = running; // altrimenti lo scraping in corso riscriverebbe i risultati subito dopo
     $('btnCancel').hidden = !running;
     $('progress').hidden = !running;
     if (running && st.total) { $('progress').max = st.total; $('progress').value = st.done || 0; }
@@ -281,12 +282,35 @@
   });
 
   // ---------------------------------------------------------------
+  // Cache: risultati e stato salvati. Profilo e opzioni NON sono cache e restano.
+  // ---------------------------------------------------------------
+  const CACHE_KEYS = ['lastResults', 'scrapeState'];
+
+  const formatBytes = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+
+  async function updateCacheSize() {
+    const bytes = await chrome.storage.local.getBytesInUse(CACHE_KEYS);
+    $('cacheSize').textContent = bytes > 0 ? `(${formatBytes(bytes)})` : '';
+  }
+
+  $('btnClearCache').addEventListener('click', async () => {
+    if (!window.confirm('Eliminare gli annunci e le aziende estratti e lo stato salvato?\nIl profilo e le opzioni non vengono toccati.')) return;
+    await chrome.storage.local.remove(CACHE_KEYS);
+    chrome.runtime.sendMessage({ type: 'CLEAR_HIGHLIGHT' }).catch(() => { /* nessuna scheda StepStone attiva */ });
+    results = null;
+    render();
+    setStatus('Cache svuotata ✓', 'ok');
+    updateCacheSize();
+  });
+
+  // ---------------------------------------------------------------
   // Init + aggiornamenti live
   // ---------------------------------------------------------------
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes.scrapeState) applyState(changes.scrapeState.newValue);
     if (changes.lastResults) { results = changes.lastResults.newValue || null; render(); }
+    if (changes.lastResults || changes.scrapeState) updateCacheSize();
   });
 
   (async function init() {
@@ -301,5 +325,6 @@
     results = lastResults || null;
     render();
     applyState(scrapeState);
+    updateCacheSize();
   })();
 })();

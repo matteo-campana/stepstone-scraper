@@ -68,6 +68,7 @@ Premi **Salva profilo**. Tutto viene salvato in `chrome.storage.local` (solo sul
   - **XLSX**: un unico file con due fogli, **Aziende** e **Annunci** (intestazione in grassetto, riga bloccata, filtro automatico, link cliccabili).
   - **CSV annunci** / **CSV aziende** (separatore `;` con BOM, si aprono correttamente in Excel italiano/tedesco).
   - **JSON**: tutti i dati (annunci, aziende, metadati).
+- **Pulisci cache**: elimina gli annunci e le aziende estratti e lo stato salvato (accanto al pulsante è indicata la dimensione occupata) e rimuove i badge dalla pagina StepStone. **Profilo e opzioni non vengono toccati.** Chiede conferma ed è disattivato mentre uno scraping è in corso. Utile prima di una nuova ricerca, per liberare spazio o dopo un aggiornamento dell'estensione.
 
 ## 3. Come viene calcolato il punteggio
 
@@ -148,7 +149,7 @@ npm install
 STEPSTONE_FIXTURES=/percorso/alle/pagine npm test      # PowerShell: $env:STEPSTONE_FIXTURES="C:\percorso"; npm test
 ```
 
-`npm test` esegue `parse.test.js` (parser, aziende, XLSX) e `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; usa `fetch` simulato dentro jsdom).
+`npm test` esegue `parse.test.js` (parser, aziende, XLSX), `popup.test.js` (popup e pulsante Pulisci cache, senza bisogno delle pagine StepStone) e `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; usa `fetch` simulato dentro jsdom).
 
 I test coprono anche lista aziende, classificazione Main Business e generazione XLSX (rilettura con `openpyxl`, se installato: `pip install openpyxl`).
 
