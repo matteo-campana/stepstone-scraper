@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <title>StepStone Scraper &amp; Matcher</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <nav class="tabs">
+    <button class="tab active" data-tab="jobs">Annunci</button>
+    <button class="tab" data-tab="profile">Profilo</button>
+  </nav>
+
+  <!-- ===== TAB ANNUNCI ===== -->
+  <section id="tab-jobs" class="panel">
+    <div class="opts">
+      <label>Pagine da leggere
+        <input type="number" id="maxPages" min="1" max="20" value="3">
+      </label>
+      <label class="chk"><input type="checkbox" id="enrich"> Leggi anche i dettagli (più lento: contratto, requisiti)</label>
+      <label class="chk"><input type="checkbox" id="companyDetails" checked> Dati aziende (settore, sede): 1 dettaglio per azienda</label>
+      <label class="chk"><input type="checkbox" id="highlight" checked> Evidenzia l'affinità nella pagina</label>
+    </div>
+
+    <div class="row">
+      <button id="btnScrape" class="primary">Estrai annunci</button>
+      <button id="btnCancel" hidden>Ferma</button>
+    </div>
+    <div id="status" class="status" role="status"></div>
+    <progress id="progress" max="1" value="0" hidden></progress>
+    <ul id="warnings" class="warnings"></ul>
+
+    <div class="row small">
+      <button id="btnHighlight">Evidenzia in pagina</button>
+      <button id="btnClear">Rimuovi</button>
+      <button id="btnXlsx" class="accent">XLSX</button>
+      <button id="btnCsv">CSV annunci</button>
+      <button id="btnCsvCo">CSV aziende</button>
+      <button id="btnJson">JSON</button>
+    </div>
+
+    <div class="views">
+      <button class="view active" data-view="jobs">Annunci <span id="cntJobs"></span></button>
+      <button class="view" data-view="companies">Aziende <span id="cntCompanies"></span></button>
+    </div>
+    <div id="summary" class="summary"></div>
+    <div class="tablewrap" id="view-jobs">
+      <table id="table">
+        <thead><tr><th>%</th><th>Annuncio</th><th>Luogo</th><th>Stipendio</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tablewrap" id="view-companies" hidden>
+      <table id="tableCo">
+        <thead><tr><th>Azienda</th><th>Link</th><th>LinkedIn</th><th>Business</th><th>Settore</th><th>Paese</th><th>Città</th><th>#</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===== TAB PROFILO ===== -->
+  <section id="tab-profile" class="panel" hidden>
+    <form id="profileForm">
+      <label>Competenze / skill <small>(separate da virgola)</small>
+        <textarea id="skills" rows="2" placeholder="terraform, kubernetes, azure, python"></textarea>
+      </label>
+      <label>Anni di esperienza
+        <input type="number" id="years" min="0" max="50">
+      </label>
+      <label>Posizione desiderata
+        <input type="text" id="position" placeholder="Platform Engineer">
+      </label>
+      <div class="two">
+        <label>Stipendio min (€/anno)
+          <input type="number" id="salaryMin" min="0" step="1000" placeholder="60000">
+        </label>
+        <label>Stipendio max (€/anno)
+          <input type="number" id="salaryMax" min="0" step="1000" placeholder="90000">
+        </label>
+      </div>
+      <label>Località preferite <small>(separate da virgola)</small>
+        <input type="text" id="locations" placeholder="Berlin, München">
+      </label>
+      <label class="chk"><input type="checkbox" id="remote"> Preferisco il lavoro da remoto / home office</label>
+      <div class="row">
+        <button type="submit" class="primary">Salva profilo</button>
+        <span id="profileMsg" class="status"></span>
+      </div>
+    </form>
+  </section>
+
+  <script src="match.js"></script>
+  <script src="companies.js"></script>
+  <script src="xlsx.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

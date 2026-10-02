@@ -1,0 +1,19 @@
+/* Badge di affinità iniettato sulle card di StepStone */
+.ss-match-badge {
+  display: inline-block;
+  margin: 8px 16px 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font: 600 12px/1.4 system-ui, sans-serif;
+  color: #fff;
+  max-width: calc(100% - 32px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.ss-match-badge.ss-high { background: #1b8a3a; }
+.ss-match-badge.ss-mid  { background: #b8860b; }
+.ss-match-badge.ss-low  { background: #8a8f98; }
+[data-ss-level="high"] { outline: 2px solid #1b8a3a !important; outline-offset: -2px; }
+[data-ss-level="mid"]  { outline: 2px solid #b8860b !important; outline-offset: -2px; }
