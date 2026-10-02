@@ -37,6 +37,8 @@ const SS_SELECTORS = {
     salary: ['[data-at="job-item-salary"]'],
     totalCount: ['[data-at="search-jobs-count"]'],
     pagination: ['nav[aria-label="pagination"]'],
+    // Testo "Page 1 of 52" dentro il nav (letto da solo: il testo dell'intero nav fonderebbe i numeri dei pulsanti)
+    paginationStatus: ['[role="status"]'],
     // Elementi da escludere (card dentro caroselli di raccomandazioni)
     excludeAncestor: ['[data-at="resultListMainResultsCvRecommender"]', '[data-at="related-jobs"]']
   },

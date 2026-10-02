@@ -170,6 +170,67 @@ ok('pageSequence: totale ignoto → solo le pagine precedenti', () => {
   assert.deepEqual(Content.pageSequence(3, null), [1, 2]);
 });
 
+ok('paginazione: nav SENZA spazi tra stato e pulsanti (DOM reale) → totale corretto', () => {
+  // come nel browser: "Page 1 of 37" seguito dai numeri dei pulsanti senza whitespace;
+  // il vecchio codice leggeva "37" + "1234…" come 371234…
+  const live = load('stepston-result-page.html', resUrl);
+  const nav = live.querySelector('nav[aria-label="pagination"]');
+  nav.innerHTML = nav.innerHTML.replace(/>\s+</g, '><');
+  assert.match(nav.textContent, /Page 1 of 37\d/); // il testo grezzo è davvero "fuso"
+  const p = Content.getPagination(live, resUrl);
+  assert.equal(p.total, 37); assert.equal(p.current, 1);
+});
+ok('paginazione: ripiego su aria-label dei link, poi su href ?page=N', () => {
+  const mk = (inner) => new JSDOM(`<nav aria-label="pagination">${inner}</nav>`, { url: 'https://www.stepstone.de/jobs/x?page=2' }).window.document;
+  const links = (n, label) => Array.from({ length: n }, (_, i) => `<a href="/jobs/x?page=${i + 1}" ${label ? `aria-label="${i + 1} von 52"` : ''}>${i + 1}</a>`).join('');
+  assert.equal(Content.getPagination(mk(links(5, true)), 'https://www.stepstone.de/jobs/x?page=2').total, 52); // aria-label
+  assert.equal(Content.getPagination(mk(links(5, false)), 'https://www.stepstone.de/jobs/x?page=2').total, 5);  // href
+  assert.equal(Content.getPagination(mk(''), 'https://www.stepstone.de/jobs/x').total, null);
+});
+ok('sanePageTotal: totale incoerente col numero di risultati viene corretto', () => {
+  assert.equal(Content.sanePageTotal(5212345, 1294, 25), 52);
+  assert.equal(Content.sanePageTotal(37, 901, 25), 37);     // 901/25 = 36.04 → 37 pagine: coerente
+  assert.equal(Content.sanePageTotal(52, 1294, 25), 52);
+  assert.equal(Content.sanePageTotal(52, null, 25), 52);    // senza contatore non si corregge
+  assert.equal(Content.sanePageTotal(null, 900, 25), null);
+});
+
+// ---------- <style> inline dentro le card (Emotion) ----------
+const CSS = '.res-8wkck8{box-sizing:border-box;margin:0;min-width:0;line-height:0px;display:block;}@media screen and (min-width: 600px){.res-ewgtgq{-webkit-line-clamp:1;}}';
+const injectStyles = (root) => {
+  for (const el of root.querySelectorAll('[data-at]')) {
+    if (el.tagName === 'ARTICLE' || el.tagName === 'SCRIPT') continue;
+    const st = el.ownerDocument.createElement('style');
+    st.textContent = CSS;
+    el.insertBefore(st, el.firstChild); // dentro l'elemento, davanti al testo, come nel DOM reale
+  }
+};
+ok('card: <style> inline dentro i campi non finisce nel testo estratto', () => {
+  const base = Content.parseResultCards(load('stepston-result-page.html', resUrl), resUrl, []);
+  const dirty = load('stepston-result-page.html', resUrl);
+  injectStyles(dirty);
+  // senza la correzione, textContent includerebbe il CSS: il test è significativo
+  assert.match(dirty.querySelector('[data-at="job-item-title"]').textContent, /box-sizing/);
+  const got = Content.parseResultCards(dirty, resUrl, []);
+  assert.equal(got.length, base.length);
+  const fields = ['id', 'title', 'company', 'location', 'remote', 'salary', 'snippet', 'postedAt', 'badges', 'url', 'companyUrl'];
+  got.forEach((j, i) => fields.forEach((f) => assert.deepEqual(j[f], base[i][f], `card ${i} campo ${f}`)));
+  got.forEach((j) => [j.title, j.company, j.location, j.remote, j.salary, j.snippet, ...j.badges]
+    .forEach((v) => assert.doesNotMatch(String(v), /box-sizing|@media|[{}]/, 'CSS nel risultato: ' + v)));
+});
+ok('dettaglio: <style> inline dentro i campi non finisce nel testo estratto', () => {
+  const base = Content.parseDetail(load('stepstone-job-detail-page.html', detUrl), []);
+  const dirty = load('stepstone-job-detail-page.html', detUrl);
+  injectStyles(dirty);
+  const got = Content.parseDetail(dirty, []);
+  ['title', 'company', 'location', 'contractType', 'workType', 'salary', 'postedAt', 'description', 'requirements', 'benefits']
+    .forEach((f) => { assert.equal(got[f], base[f], 'campo ' + f); assert.doesNotMatch(String(got[f]), /box-sizing|@media/, 'CSS in ' + f); });
+});
+ok('visibleText: salta style/script/noscript/svg', () => {
+  const el = new JSDOM('<div id="x">A<style>.a{b:c}</style><span>B<script>var z=1</script></span><svg><title>icona</title></svg><noscript>ns</noscript>C</div>').window.document.getElementById('x');
+  assert.equal(Content.visibleText(el), 'ABC');
+});
+
 // ---------- XLSX ----------
 ok('buildXlsx: zip integro, XML valido, rilettura con openpyxl', () => {
   const rows = Companies.buildCompanies(jobs, 'www.stepstone.de');

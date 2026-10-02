@@ -27,12 +27,18 @@ const CARDS = (() => {
 assert.equal(CARDS.length, 25);
 
 /** Pagina N con 25 annunci a ID univoci; `nav` = testo paginazione (null → nessuna paginazione). */
-const lightPage = (p, nav = null) => {
+const lightPage = (p, nav = null, count = null) => {
   const cards = CARDS.map((h) => h
     .replace(/job-item-(\d+)/g, (_, id) => `job-item-${id}${p}`)
     .replace(/-(\d{5,})-inline/g, (_, id) => `-${id}${p}-inline`)
     .replace(/(\/cmp\/[^"]*?-)(\d+)(\/jobs)/g, (_, a, id, c) => `${a}${id}${p}${c}`));
-  return `<html><body>${nav ? `<h1>Test</h1><nav aria-label="pagination"><span>${nav}</span></nav>` : ''}` +
+  // Come nel DOM reale: stato "Page 1 of N" e numeri dei pulsanti SENZA spazi in mezzo
+  // (il vecchio parser li fondeva: 52 + 12345 → 5212345).
+  const navHtml = nav
+    ? `<h1>Test</h1>${count ? `<span data-at="search-jobs-count">${count}</span>` : ''}` +
+      `<nav aria-label="pagination"><span role="status">${nav}</span><ul><li><a href="?page=1">1</a></li><li><a href="?page=2">2</a></li><li><a href="?page=3">3</a></li></ul></nav>`
+    : '';
+  return `<html><body>${navHtml}` +
     `<div data-at="unified-resultlist">${cards.join('')}</div></body></html>`;
 };
 const pageHtml = (p) => lightPage(p);
@@ -45,8 +51,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *   total: totale pagine dichiarato nella pagina live (null → senza paginazione)
  *   concurrency, fetchImpl(p, call) → {status, html?} | throw
  */
-async function run({ total = 37, concurrency = 5, startPage = 1, fetchImpl }) {
-  const html = lightPage(startPage, total === null ? null : `Page ${startPage} of ${total}`);
+async function run({ total = 37, totalResults = null, concurrency = 5, startPage = 1, fetchImpl }) {
+  const html = lightPage(startPage, total === null ? null : `Page ${startPage} of ${total}`, totalResults);
 
   const url = `https://www.stepstone.de/jobs/platform-engineer${startPage > 1 ? '?page=' + startPage : ''}`;
   const dom = new JSDOM(html, { url, runScripts: 'outside-only' });
@@ -139,6 +145,16 @@ const test = async (name, fn) => { await fn(); n++; console.log('  ✓', name); 
     assert.deepEqual(results.meta.pagesScraped, [1, 8]);
     assert.deepEqual(Object.keys(calls).map(Number).sort((a, b) => a - b), [1, 2, 3, 4, 6, 7, 8]);
     assert.equal(results.jobs.length, 8 * 25);
+  });
+
+  await test('totale pagine assurdo (5212345) con 100 risultati → si legge solo fino a pagina 4, senza avvisi per pagine inesistenti', async () => {
+    const { results, calls } = await run({ total: 5212345, totalResults: 100 });
+    assert.deepEqual(Object.keys(calls).map(Number).sort((a, b) => a - b), [2, 3, 4]);
+    assert.equal(results.jobs.length, 4 * 25);
+    assert.deepEqual(results.meta.pagesScraped, [1, 4]);
+    assert.ok(results.meta.warnings.some((w) => /incoerente/.test(w)));
+    assert.ok(!results.meta.warnings.some((w) => /Pagina \d+: nessun annuncio/.test(w)));
+    assert.ok(!results.meta.warnings.some((w) => /Nessuna card/.test(w)));
   });
 
   await test('totale ignoto: scopre le pagine a ondate e si ferma alla prima vuota', async () => {

@@ -27,6 +27,25 @@
   /** Normalizza spazi e a-capo. */
   const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
+  /**
+   * Testo VISIBILE di un elemento. Non si può usare `textContent`: StepStone (Emotion) inietta
+   * elementi <style> dentro le card e persino dentro i singoli span, e textContent ne includerebbe
+   * il CSS (".res-8wkck8{box-sizing:…}Titolo dell'annuncio"). Si saltano i nodi non testuali.
+   */
+  const NON_TEXT = /^(style|script|noscript|svg|template)$/i;
+  function visibleText(el) {
+    if (!el) return '';
+    let out = '';
+    const walk = (node) => {
+      for (let c = node.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) out += c.nodeValue;
+        else if (c.nodeType === 1 && !NON_TEXT.test(c.nodeName)) walk(c);
+      }
+    };
+    walk(el);
+    return clean(out);
+  }
+
   /** Prova i selettori in ordine, ritorna il primo elemento trovato (o null). */
   function queryFirst(rootEl, selectors) {
     for (const sel of selectors) {
@@ -51,7 +70,7 @@
 
   const textOf = (rootEl, selectors) => {
     const el = queryFirst(rootEl, selectors);
-    return el ? clean(el.textContent) : '';
+    return el ? visibleText(el) : '';
   };
 
   const attrOf = (rootEl, selectors, attr) => {
@@ -108,7 +127,7 @@
     for (const sp of spans) {
       if (snippet && snippet.contains(sp)) continue;
       if (sp.querySelector('span')) continue; // solo foglie
-      const t = clean(sp.textContent);
+      const t = visibleText(sp);
       if (t.length < 90 && /\d/.test(t) && /[€$£]|eur\b/i.test(t)) return t;
     }
     return '';
@@ -156,7 +175,7 @@
 
       const job = {
         id: extractJobId(card, url),
-        title: titleEl ? clean(titleEl.textContent) : '',
+        title: titleEl ? visibleText(titleEl) : '',
         company: textOf(card, SEL.results.company),
         companyUrl,
         companyId: companyIdFromUrl(companyUrl),
@@ -164,9 +183,9 @@
         remote: textOf(card, SEL.results.remote),
         salary: extractCardSalary(card),
         snippet: textOf(card, SEL.results.snippet).replace(/\s*mehr$/i, ''),
-        postedAt: timeEl ? (timeEl.getAttribute('datetime') || clean(timeEl.textContent)) : '',
+        postedAt: timeEl ? (timeEl.getAttribute('datetime') || visibleText(timeEl)) : '',
         isNew: !!queryFirst(card, SEL.results.topLabel),
-        badges: Array.from(card.querySelectorAll(SEL.results.badges[0])).map((b) => clean(b.textContent)),
+        badges: Array.from(card.querySelectorAll(SEL.results.badges[0])).map((b) => visibleText(b)),
         url,
         contractType: '', workType: '', description: '', requirements: ''
       };
@@ -184,23 +203,57 @@
     return jobs;
   }
 
-  /** Pagina corrente / totale pagine. */
+  /**
+   * Pagina corrente / totale pagine.
+   * Il totale si legge da fonti ristrette, MAI dal testo dell'intero <nav>: nel DOM reale
+   * "Page 1 of 52" è attaccato senza spazi ai numeri dei pulsanti (1 2 3 4 5) e un'unica
+   * regex li fonderebbe in "5212345".
+   *   1. elemento di stato (role="status"): "Page 1 of 52"
+   *   2. aria-label dei link: "2 von 52"
+   *   3. ripiego: numero di pagina più alto negli href (?page=N)
+   */
+  const OF_RE = /(\d+)\s*(?:of|von|de|van|sur|di)\s*(\d+)\s*$/i;
+
   function getPagination(doc, url) {
     let current = 1;
     try { current = parseInt(new URL(url).searchParams.get('page'), 10) || 1; } catch (e) { /* noop */ }
     let total = null;
+
     const nav = queryFirst(doc, SEL.results.pagination);
     if (nav) {
-      const m = clean(nav.textContent).match(/(\d+)\s*(?:of|von|de|van|sur|di)\s*(\d+)/i);
+      const status = queryFirst(nav, SEL.results.paginationStatus);
+      const m = status && visibleText(status).match(OF_RE);
       if (m) { current = parseInt(m[1], 10); total = parseInt(m[2], 10); }
-      else {
-        const nums = Array.from(nav.querySelectorAll('a,button')).map((a) => parseInt(clean(a.textContent), 10)).filter((n) => n > 0);
-        if (nums.length) total = Math.max(...nums, current);
+
+      if (!total) {
+        const totals = Array.from(nav.querySelectorAll('[aria-label]'))
+          .map((el) => (el.getAttribute('aria-label') || '').match(OF_RE))
+          .filter(Boolean).map((x) => parseInt(x[2], 10));
+        if (totals.length) total = Math.max(...totals);
+      }
+
+      if (!total) {
+        const pages = Array.from(nav.querySelectorAll('a[href]')).map((a) => {
+          const mm = (a.getAttribute('href') || '').match(/[?&]page=(\d+)/);
+          return mm ? parseInt(mm[1], 10) : 0;
+        }).filter((n) => n > 0);
+        if (pages.length) total = Math.max(...pages, current);
       }
     }
+
     const countEl = queryFirst(doc, SEL.results.totalCount);
-    const totalResults = countEl ? parseInt(clean(countEl.textContent).replace(/\D/g, ''), 10) || null : null;
+    const totalResults = countEl ? parseInt(visibleText(countEl).replace(/\D/g, ''), 10) || null : null;
     return { current, total, totalResults };
+  }
+
+  /**
+   * Controllo di coerenza: con N risultati e P annunci per pagina le pagine sono ceil(N/P).
+   * Se il totale letto dal DOM è molto più alto, è un errore di lettura: si usa il valore atteso.
+   */
+  function sanePageTotal(total, totalResults, perPage) {
+    if (!total || !totalResults || !perPage) return total;
+    const expected = Math.ceil(totalResults / perPage);
+    return total > expected + 1 ? expected : total;
   }
 
   /** Stesso URL di ricerca (filtri inclusi) ma con ?page=N. */
@@ -398,7 +451,15 @@
 
     // --- pagina corrente: DOM live
     const byPage = new Map(); // n. pagina -> annunci (così l'ordine finale è deterministico)
-    byPage.set(pg.current, parseResultCards(document, href, warnings));
+    const firstCards = parseResultCards(document, href, warnings);
+    byPage.set(pg.current, firstCards);
+
+    // il totale pagine dichiarato deve essere coerente col numero di risultati
+    const saneTotal = sanePageTotal(pg.total, pg.totalResults, firstCards.length);
+    if (saneTotal !== pg.total) {
+      warnings.push(`Totale pagine letto dal DOM (${pg.total}) incoerente con ${pg.totalResults} risultati: uso ${saneTotal}.`);
+      pg.total = saneTotal;
+    }
     const failedPages = [];
 
     const rest = pageSequence(pg.current, pg.total);
@@ -496,7 +557,7 @@
       companies: Companies.buildCompanies(jobs, location.hostname),
       meta: {
         pageUrl: href,
-        searchTitle: clean((document.querySelector('h1') || {}).textContent),
+        searchTitle: visibleText(document.querySelector('h1')),
         totalResults: pg.totalResults,
         pagesScraped: [firstPage, lastPage],
         pagesFailed: failedPages.sort((x, y) => x - y),
@@ -579,7 +640,7 @@
   }
 
   const api = {
-    clean, queryFirst, detectPageType, parseResultCards, getPagination, buildPageUrl,
+    clean, visibleText, queryFirst, detectPageType, parseResultCards, getPagination, sanePageTotal, buildPageUrl,
     pageSequence, runPool, parseDetail, parseCompany, extractCompanyPassport, companyIdFromUrl, findJobPosting, extractCardSalary, isSupportedHost
   };
   root.SSContent = api;
