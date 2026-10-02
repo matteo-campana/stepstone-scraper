@@ -107,7 +107,26 @@ ok('classifyBusiness', () => {
   assert.equal(Companies.classifyBusiness('adesso SE', ['IT-Beratung']), 'Consulenza');
   assert.equal(Companies.classifyBusiness('Accenture Consulting', []), 'Consulenza');
   assert.equal(Companies.classifyBusiness('HDI AG', ['Versicherungen']), 'Prodotto');
-  assert.equal(Companies.classifyBusiness('Boh', []), 'Da verificare');
+  assert.equal(Companies.classifyBusiness('BMW', ['Automobilindustrie']), 'Prodotto');
+  assert.equal(Companies.classifyBusiness('Boh', []), '');
+});
+ok('classifyBusiness: nel dubbio resta vuoto (niente falsi positivi "Prodotto")', () => {
+  // settore generico o non produttivo: non basta per dire "Prodotto"
+  assert.equal(Companies.classifyBusiness('Acme GmbH', ['IT, Software']), '');
+  assert.equal(Companies.classifyBusiness('Acme GmbH', ['Internet, Medien']), '');
+  assert.equal(Companies.classifyBusiness('Bundesnotarkammer', ['Öffentlicher Dienst']), '');
+  assert.equal(Companies.classifyBusiness('Acme GmbH', ['Sonstige Dienstleistungen']), '');
+  assert.equal(Companies.classifyBusiness('Acme GmbH', []), '');
+  // parole del nome troppo generiche per Recruiting/Consulenza
+  assert.equal(Companies.classifyBusiness('Agentur für Arbeit', []), '');
+  assert.equal(Companies.classifyBusiness('Talent Solutions Software GmbH', ['IT, Software']), '');
+  assert.equal(Companies.classifyBusiness('Cloud Service Provider AG', []), '');
+});
+ok('buildCompanies: il settore di ripiego dell\'annuncio non classifica', () => {
+  const j = { ...jobs[0], companyInfo: { industries: ['Versicherungen'], industriesFromCompany: false } };
+  const [row] = Companies.buildCompanies([j], 'www.stepstone.de');
+  assert.equal(row.business, '');
+  assert.equal(row.businessDesc, 'Versicherungen'); // la descrizione resta visibile
 });
 ok('linkedinSearchUrl toglie la forma giuridica', () => {
   assert.equal(Companies.shortName('Bechtle AG'), 'Bechtle');
@@ -127,6 +146,7 @@ ok('buildCompanies sulle 25 card', () => {
   assert.equal(hdi.city, 'Hannover');
   assert.equal(hdi.businessDesc, 'Versicherungen');
   const noInfo = rows.find((r) => r.companyId === '217684');
+  assert.equal(noInfo.business, ''); // senza dati aziendali: vuoto, non "Da verificare"
   assert.equal(noInfo.country, 'Germania'); // ripiego dal dominio
   assert.ok(noInfo.city); // ripiego dalla località dell'annuncio
   const names = rows.map((r) => r.name);

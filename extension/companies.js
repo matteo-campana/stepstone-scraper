@@ -9,17 +9,31 @@
 (function (root) {
   // ================================================================
   //  PAROLE CHIAVE PER "MAIN BUSINESS" — modificabili.
-  //  Si cerca (in minuscolo) nel nome dell'azienda e nel suo settore.
-  //  Ordine di priorità: Recruiting → Consulenza → Prodotto.
+  //  Principio: nel dubbio la cella resta VUOTA. Una categoria si assegna
+  //  solo con un indizio forte; meglio nessun dato che un dato sbagliato.
+  //
+  //  - Recruiting / Consulenza: parole nel NOME dell'azienda o nel suo settore.
+  //    Si usano solo termini inequivocabili (niente "agentur", "talent",
+  //    "service"… che danno falsi positivi).
+  //  - Prodotto: SOLO se il settore dichiarato dall'azienda su StepStone
+  //    (non quello dell'annuncio) contiene uno di questi settori produttivi.
+  //    Un settore generico (IT, Software, Internet, Pubblica amministrazione…)
+  //    non basta.
+  //  Priorità: Recruiting → Consulenza → Prodotto.
   // ================================================================
   const KEYWORDS = {
     recruiting: [
-      'personalvermittlung', 'personaldienstleist', 'personalberatung', 'personalmanagement', 'zeitarbeit',
-      'arbeitnehmerüberlassung', 'recruit', 'staffing', 'headhunt', 'executive search', 'talent', 'search & selection'
+      'personalvermittlung', 'personaldienstleist', 'personalberatung', 'zeitarbeit',
+      'arbeitnehmerüberlassung', 'recruiting', 'recruitment', 'staffing', 'headhunt', 'executive search'
     ],
     consulting: [
-      'consult', 'beratung', 'berater', 'advisory', 'advisors', 'it-dienstleist', 'it-service', 'it services',
-      'system integrat', 'systemhaus', 'softwarehaus', 'software house', 'digitalagentur', 'agentur', 'outsourcing', 'engineering services'
+      'consulting', 'consultancy', 'consultants', 'unternehmensberatung', 'beratung', 'berater',
+      'advisory', 'it-dienstleist', 'systemhaus', 'system integrat'
+    ],
+    product: [
+      'automobil', 'fahrzeug', 'maschinenbau', 'anlagenbau', 'elektrotechnik', 'elektronik', 'halbleiter',
+      'luft- und raumfahrt', 'luftfahrt', 'raumfahrt', 'rüstung', 'pharma', 'medizintechnik', 'biotechnologie',
+      'chemie', 'telekommunikation', 'konsumgüter', 'lebensmittel', 'banken', 'versicherung'
     ]
   };
 
@@ -59,13 +73,18 @@
     return 'https://www.linkedin.com/search/results/companies/?keywords=' + encodeURIComponent(shortName(name));
   }
 
-  /** 'Recruiting' | 'Consulenza' | 'Prodotto' | 'Da verificare' (euristica: va rivista a mano). */
+  /**
+   * 'Recruiting' | 'Consulenza' | 'Prodotto' | '' (vuoto = non abbastanza sicuro).
+   * @param {string} name        nome azienda
+   * @param {string[]} industries settori dichiarati dall'AZIENDA (non quelli dell'annuncio)
+   */
   function classifyBusiness(name, industries) {
-    const inds = (industries || []).filter(Boolean);
-    const text = norm([name, ...inds].join(' | '));
+    const inds = norm((industries || []).filter(Boolean).join(' | '));
+    const text = norm(name) + ' | ' + inds;
     if (KEYWORDS.recruiting.some((k) => text.includes(k))) return 'Recruiting';
     if (KEYWORDS.consulting.some((k) => text.includes(k))) return 'Consulenza';
-    return inds.length ? 'Prodotto' : 'Da verificare';
+    if (inds && KEYWORDS.product.some((k) => inds.includes(k))) return 'Prodotto';
+    return '';
   }
 
   function countryName(code, host) {
@@ -111,7 +130,8 @@
         name: first.company,
         url: first.companyUrl || info.url || '',
         linkedin: linkedinSearchUrl(first.company),
-        business: classifyBusiness(first.company, industries),
+        // solo i settori dichiarati dall'azienda: quello dell'annuncio (ripiego) è troppo generico per classificare
+        business: classifyBusiness(first.company, info.industriesFromCompany ? industries : []),
         businessDesc: industries.join(', '),
         country: countryName(info.country, host || (first.url && safeHost(first.url))),
         city: info.city || firstLoc,

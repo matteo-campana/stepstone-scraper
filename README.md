@@ -4,7 +4,7 @@ Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca
 
 Domini supportati: `stepstone.de`, `.at`, `.be`, `.nl`, `.fr`.
 
-```
+```txt
 extension/
 ├── manifest.json     Configurazione MV3, permessi, content script
 ├── selectors.js      ★ Tutti i selettori CSS di StepStone (unico file da aggiornare)
@@ -33,10 +33,11 @@ Dopo ogni modifica al codice, premi l'icona ↻ sulla scheda dell'estensione in 
 ## 2. Primo utilizzo
 
 ### a) Compila il profilo
+
 Apri il popup → scheda **Profilo**:
 
 | Campo | Esempio | Note |
-|---|---|---|
+| --- | --- | --- |
 | Competenze | `terraform, kubernetes, azure` | Separate da virgola. Cerca ogni skill in titolo, anteprima, descrizione e requisiti. |
 | Anni di esperienza | `5` | Confrontato con "N Jahre/years" nei requisiti (solo con *Leggi anche i dettagli*). |
 | Posizione desiderata | `Platform Engineer` | Confrontata con il titolo dell'annuncio. |
@@ -47,6 +48,7 @@ Apri il popup → scheda **Profilo**:
 Premi **Salva profilo**. Tutto viene salvato in `chrome.storage.local` (solo sul tuo browser). I campi lasciati vuoti **non penalizzano**: vengono semplicemente ignorati nel calcolo.
 
 ### b) Estrai gli annunci
+
 1. Su StepStone esegui una ricerca e imposta i filtri che vuoi (parola chiave, luogo, tipo di lavoro, stipendio…). L'estensione usa **l'URL corrente**, quindi tutti i filtri attivi vengono mantenuti.
 2. Apri il popup → scheda **Annunci**.
 3. Imposta:
@@ -57,6 +59,7 @@ Premi **Salva profilo**. Tutto viene salvato in `chrome.storage.local` (solo sul
 4. Premi **Estrai annunci**. Barra di progresso e stato sono visibili nel popup; puoi chiuderlo: l'operazione continua e i risultati restano salvati. **Ferma** interrompe mantenendo quanto già raccolto.
 
 ### c) Leggi i risultati
+
 - La tabella è ordinata per **affinità decrescente**; il titolo apre l'annuncio in una nuova scheda.
 - **Evidenzia in pagina / Rimuovi**: mostra o toglie i badge (verde ≥ 70, giallo 40–69, grigio < 40).
 - Se modifichi il profilo, i punteggi vengono **ricalcolati subito** sui risultati già estratti, senza rifare lo scraping.
@@ -71,7 +74,7 @@ Premi **Salva profilo**. Tutto viene salvato in `chrome.storage.local` (solo sul
 Media pesata dei soli criteri applicabili:
 
 | Criterio | Peso | Punteggio |
-|---|---|---|
+| --- | --- | --- |
 | Skill | 50 | skill trovate / skill del profilo |
 | Posizione | 20 | 1 se il titolo contiene la frase; altrimenti quota di parole trovate |
 | Stipendio | 10 | 1 se il range offerto raggiunge il minimo desiderato, altrimenti proporzionale (stipendio stimato per mesi/ore → annualizzato) |
@@ -87,11 +90,11 @@ Nota: gli stipendi mostrati da StepStone sono spesso **stime** ("geschätzt für
 La vista **Aziende** e il foglio *Aziende* dell'XLSX hanno le colonne della tua tabella di lavoro:
 
 | Colonna | Come viene ricavata |
-|---|---|
+| --- | --- |
 | **Azienda** | Nome come appare nella card dell'annuncio. |
 | **Link Azienda** | Profilo aziendale su StepStone (`/cmp/de/<nome>-<ID>/jobs`). StepStone **non** mostra il sito web dell'azienda. |
 | **LinkedIn** | Link alla **ricerca LinkedIn** per il nome (senza GmbH/AG/SE…): StepStone non espone il profilo LinkedIn, quindi serve un clic per scegliere l'azienda giusta. |
-| **Main Business** | `Consulenza`, `Prodotto`, `Recruiting` oppure `Da verificare`, vedi sotto. |
+| **Main Business** | `Consulenza`, `Prodotto`, `Recruiting` oppure **vuoto** se non c'è un indizio sicuro, vedi sotto. |
 | **Main Business - Descrizione** | Settore indicato da StepStone nella scheda aziendale (es. *Versicherungen*); in mancanza, il settore dell'annuncio. |
 | **Country** | Dal paese della sede (es. `DE` → *Germania*); in mancanza, dal dominio StepStone. |
 | **City** | Città della sede dalla scheda aziendale; in mancanza, la prima località dell'annuncio. |
@@ -99,14 +102,19 @@ La vista **Aziende** e il foglio *Aziende* dell'XLSX hanno le colonne della tua 
 
 Le aziende sono raggruppate per **ID StepStone** (una riga per azienda anche con più annunci) e ordinate alfabeticamente.
 
-**Main Business è una stima automatica**: si cercano parole chiave nel nome e nel settore (priorità Recruiting → Consulenza → Prodotto; se c'è un settore ma nessuna parola chiave → Prodotto; se non c'è nessun dato → *Da verificare*). Controlla sempre i casi dubbi. Le parole chiave sono in cima a `companies.js` (`KEYWORDS`) e si modificano liberamente.
+**Main Business è una stima prudente: nel dubbio la cella resta vuota.** Una categoria viene assegnata solo con un indizio forte:
 
-Senza l'opzione **Dati aziende** (o *Leggi anche i dettagli*) settore e sede non sono disponibili e molte righe resteranno *Da verificare*, con città presa dall'annuncio.
+- **Recruiting** / **Consulenza**: nel nome dell'azienda o nel suo settore compare un termine inequivocabile (es. *Personalvermittlung*, *Zeitarbeit*, *Consulting*, *Unternehmensberatung*, *Systemhaus*). Termini ambigui come "Agentur", "Talent" o "Service" non bastano.
+- **Prodotto**: solo se il **settore dichiarato dall'azienda su StepStone** è produttivo (es. *Automobil*, *Maschinenbau*, *Elektronik*, *Pharma*, *Telekommunikation*, *Banken*, *Versicherungen*). Un settore generico (IT, Software, Internet, pubblica amministrazione, "Sonstige Dienstleistungen") non basta. Il settore dell'annuncio, che è solo un ripiego, non viene mai usato per classificare.
+
+Le liste di parole chiave sono in cima a `companies.js` (`KEYWORDS`): per ridurre ancora i falsi positivi rimuovi termini, per coprire più casi aggiungili. Controlla comunque le righe classificate.
+
+Senza l'opzione **Dati aziende** (o *Leggi anche i dettagli*) settore e sede non sono disponibili: **Main Business** resta vuoto per quasi tutte le righe, e la città viene presa dall'annuncio.
 
 ## 5. Gestione errori
 
 | Messaggio | Causa / soluzione |
-|---|---|
+| --- | --- |
 | *La scheda attiva non è StepStone* | Passa a una scheda `www.stepstone.(de/at/be/nl/fr)`. |
 | *Non è una pagina di risultati di ricerca* | Apri una ricerca (`/jobs/...`), non un singolo annuncio o la home. |
 | *La pagina non risponde* | Ricarica la scheda (F5). |
@@ -123,6 +131,7 @@ Tutti i selettori sono in **`extension/selectors.js`**, ognuno come elenco di al
 4. `chrome://extensions` → ↻ sull'estensione, poi F5 sulla pagina StepStone.
 
 Particolarità note, verificate sulle pagine di riferimento:
+
 - **Stipendio nella lista**: non ha un `data-at`; viene riconosciuto come `<span>` foglia contenente `€` (funzione `extractCardSalary` in `content.js`). Se StepStone aggiunge un attributo dedicato, mettilo in `results.salary`.
 - **Card "consigliate"**: la pagina contiene altre card `job-item` nei blocchi di raccomandazioni (70 su 95 nella pagina di esempio). Vengono escluse tramite `results.excludeAncestor`; la lista reale ha 25 annunci per pagina.
 - **Tipo di contratto**: non è presente nelle card della lista, solo nel dettaglio (`metadata-contract-type`), quindi richiede *Leggi anche i dettagli*.
@@ -130,6 +139,7 @@ Particolarità note, verificate sulle pagine di riferimento:
 - **Dettaglio**: la fonte primaria è il JSON-LD `JobPosting` della pagina, con ripiego sugli attributi `data-at="metadata-*"` / `section-text-*`.
 
 ### Test dei parser
+
 I test verificano i selettori su due pagine StepStone salvate (una di ricerca e una di dettaglio, ~8 MB in tutto, **non incluse nel repository**). Salvale come `stepston-result-page.html` e `stepstone-job-detail-page.html` in una cartella e indicala con `STEPSTONE_FIXTURES` (di default si cerca nella radice del repo; se mancano i test vengono saltati).
 
 ```bash

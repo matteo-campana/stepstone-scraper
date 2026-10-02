@@ -41,6 +41,5 @@ button.accent { background: #1b8a3a; border-color: #1b8a3a; color: #fff; font-we
 .tablewrap table { font-size: 12px; }
 .biz { font-weight: 600; white-space: nowrap; }
 .biz.Consulenza { color: #0b6e7f; } .biz.Prodotto { color: #6d28d9; } .biz.Recruiting { color: #b45309; }
-.biz.Da { color: var(--muted); }
 .opts label small { display: block; margin-top: 2px; }
 .opts input[type=number] { margin-left: 0; display: block; }
