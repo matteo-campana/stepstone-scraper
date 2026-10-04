@@ -7,6 +7,8 @@
  * più, in coda: N. annunci, Affinità max.
  */
 (function (root) {
+  const Sites = root.SSSites || (typeof require !== 'undefined' ? require('./sites.js') : null);
+
   // ================================================================
   //  PAROLE CHIAVE PER "MAIN BUSINESS" — modificabili.
   //  Principio: nel dubbio la cella resta VUOTA. Una categoria si assegna
@@ -24,7 +26,9 @@
   const KEYWORDS = {
     recruiting: [
       'personalvermittlung', 'personaldienstleist', 'personalberatung', 'zeitarbeit',
-      'arbeitnehmerüberlassung', 'recruiting', 'recruitment', 'staffing', 'headhunt', 'executive search'
+      'arbeitnehmerüberlassung', 'recruiting', 'recruitment', 'staffing', 'headhunt', 'executive search',
+      // UK (TotalJobs): solo termini inequivocabili
+      'resourcing', 'talent acquisition', 'search & selection', 'search and selection', 'employment agency', 'rec2rec'
     ],
     consulting: [
       'consulting', 'consultancy', 'consultants', 'unternehmensberatung', 'beratung', 'berater',
@@ -50,12 +54,9 @@
     US: 'Stati Uniti', CA: 'Canada', IN: 'India'
   };
 
-  /** Paese di ripiego dal dominio StepStone dell'annuncio. */
-  const HOST_COUNTRY = { de: 'DE', at: 'AT', be: 'BE', nl: 'NL', fr: 'FR' };
-
   const norm = (s) => String(s || '').toLowerCase().normalize('NFKC');
 
-  /** Chiave di raggruppamento: ID azienda StepStone, altrimenti nome normalizzato. */
+  /** Chiave di raggruppamento: ID azienda del sito, altrimenti nome normalizzato. */
   function companyKey(job) {
     return job.companyId ? 'id:' + job.companyId : 'n:' + norm(job.company).replace(/[^a-z0-9äöüß]+/g, ' ').trim();
   }
@@ -68,7 +69,7 @@
     return (kept.join(' ') || String(name || '')).replace(/[,;]+$/, '').trim();
   }
 
-  /** StepStone non espone il profilo LinkedIn: si genera la ricerca aziendale, da cui basta un clic. */
+  /** I siti non espongono il profilo LinkedIn: si genera la ricerca aziendale, da cui basta un clic. */
   function linkedinSearchUrl(name) {
     return 'https://www.linkedin.com/search/results/companies/?keywords=' + encodeURIComponent(shortName(name));
   }
@@ -88,7 +89,9 @@
   }
 
   function countryName(code, host) {
-    const c = String(code || '').toUpperCase() || HOST_COUNTRY[(String(host || '').match(/stepstone\.(\w+)$/) || [])[1]] || '';
+    // paese di ripiego dal dominio dell'annuncio (definito per sito in sites.js)
+    const site = Sites && Sites.forHost(host);
+    const c = String(code || '').toUpperCase() || (site ? site.country(host) : '') || '';
     return COUNTRY_IT[c] || c;
   }
 
@@ -107,7 +110,7 @@
 
   /**
    * @param {object[]} jobs  annunci (con companyId/companyUrl dalle card e, se letto, companyInfo dal dettaglio)
-   * @param {string} host    hostname StepStone (per il Paese di ripiego)
+   * @param {string} host    hostname del sito (per il Paese di ripiego)
    */
   function buildCompanies(jobs, host) {
     const groups = new Map();

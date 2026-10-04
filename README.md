@@ -1,20 +1,28 @@
-# StepStone Scraper & Matcher
+# Job Scraper & Matcher (StepStone · TotalJobs)
 
-Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende** e permette di esportare tutto in **XLSX**, CSV e JSON.
+Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone o TotalJobs**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende** e permette di esportare tutto in **XLSX**, CSV e JSON.
 
-Domini supportati: `stepstone.de`, `.at`, `.be`, `.nl`, `.fr`.
+Siti supportati:
+
+| Sito | Domini | Valuta | Note |
+| --- | --- | --- | --- |
+| **StepStone** | `www.stepstone.de`, `.at`, `.be`, `.nl`, `.fr` | EUR | Profilo azienda `/cmp/…`, stipendi spesso stimati. |
+| **TotalJobs** | `www.totaljobs.com` | GBP | Stesso design system (`data-at`), stipendio in `job-item-salary-info`, spesso come tariffa giornaliera; ID azienda in `?cmpId=`. |
+
+Il sito è riconosciuto dall'host della scheda attiva; i risultati sono salvati **per sito** (estrarre su TotalJobs non cancella quelli di StepStone) e il popup mostra il sito corrente in un'etichetta accanto al titolo.
 
 ```txt
 extension/
 ├── manifest.json     Configurazione MV3, permessi, content script
-├── selectors.js      ★ Tutti i selettori CSS di StepStone (unico file da aggiornare)
+├── selectors.js      Selettori CSS di base, condivisi tra i siti
+├── sites.js          ★ Registro dei siti: host, valuta, estrattori di ID, differenze di selettori per sito
 ├── content.js        Estrazione dal DOM, paginazione, arricchimento, badge in pagina
 ├── match.js          Parsing stipendio e calcolo del punteggio (condiviso con il popup)
 ├── companies.js      Lista aziende: raggruppamento, classificazione Main Business, link LinkedIn
 ├── xlsx.js           Writer XLSX minimale, senza dipendenze esterne
 ├── background.js     Service worker: default, verifica tab/dominio, iniezione content script
 ├── popup.html/.css/.js   Interfaccia: profilo, avvio scraping, tabella, export
-├── content.css       Stile dei badge nella pagina StepStone
+├── content.css       Stile dei badge nella pagina
 └── test/             Test dei parser sulle pagine HTML salvate nel repo
 ```
 
@@ -28,7 +36,7 @@ extension/
 4. Seleziona la cartella **`extension/`** di questo repository (quella che contiene `manifest.json`).
 5. (Consigliato) Clicca l'icona a forma di puzzle nella barra di Chrome e **fissa** l'estensione.
 
-Dopo ogni modifica al codice, premi l'icona ↻ sulla scheda dell'estensione in `chrome://extensions` e **ricarica la pagina StepStone** (F5).
+Dopo ogni modifica al codice, premi l'icona ↻ sulla scheda dell'estensione in `chrome://extensions` e **ricarica la pagina** (F5).
 
 ## 2. Primo utilizzo
 
@@ -41,7 +49,7 @@ Apri il popup → scheda **Profilo**:
 | Competenze | `terraform, kubernetes, azure` | Separate da virgola. Cerca ogni skill in titolo, anteprima, descrizione e requisiti. |
 | Anni di esperienza | `5` | Confrontato con "N Jahre/years" nei requisiti (solo con *Leggi anche i dettagli*). |
 | Posizione desiderata | `Platform Engineer` | Confrontata con il titolo dell'annuncio. |
-| Stipendio min/max | `60000` / `90000` | €/anno. Usato solo per annunci che indicano uno stipendio. |
+| Stipendio min/max | `60000` / `90000` | Importo annuo, **senza conversione di valuta**: con annunci in £ (TotalJobs) inserisci l'importo in £. Usato solo per annunci che indicano uno stipendio. |
 | Località preferite | `Berlin, München` | Separate da virgola. |
 | Remoto | ☑ | Premia gli annunci con "Home-Office". |
 
@@ -68,7 +76,7 @@ Premi **Salva profilo**. Tutto viene salvato in `chrome.storage.local` (solo sul
   - **XLSX**: un unico file con due fogli, **Aziende** e **Annunci** (intestazione in grassetto, riga bloccata, filtro automatico, link cliccabili).
   - **CSV annunci** / **CSV aziende** (separatore `;` con BOM, si aprono correttamente in Excel italiano/tedesco).
   - **JSON**: tutti i dati (annunci, aziende, metadati).
-- **Pulisci cache**: elimina gli annunci e le aziende estratti e lo stato salvato (accanto al pulsante è indicata la dimensione occupata) e rimuove i badge dalla pagina StepStone. **Profilo e opzioni non vengono toccati.** Chiede conferma ed è disattivato mentre uno scraping è in corso. Utile prima di una nuova ricerca, per liberare spazio o dopo un aggiornamento dell'estensione.
+- **Pulisci cache**: elimina gli annunci e le aziende estratti e lo stato salvato (accanto al pulsante è indicata la dimensione occupata) e rimuove i badge dalla pagina. Agisce sul **sito mostrato** (il nome è accanto al pulsante); **Tutto** svuota la cache di tutti i siti. **Profilo e opzioni non vengono toccati.** Chiede conferma ed è disattivato mentre uno scraping è in corso. Utile prima di una nuova ricerca, per liberare spazio o dopo un aggiornamento dell'estensione.
 
 ## 3. Come viene calcolato il punteggio
 
@@ -85,6 +93,8 @@ Media pesata dei soli criteri applicabili:
 Un criterio senza dati (profilo o annuncio) è escluso, non conta come zero. Senza nessun criterio applicabile il punteggio è `–`. I pesi sono in `match.js` (`WEIGHTS`).
 
 Nota: gli stipendi mostrati da StepStone sono spesso **stime** ("geschätzt für Vollzeit"), non dati dichiarati dall'azienda.
+
+**Valuta e tariffe giornaliere.** Ogni annuncio ha una valuta (`EUR`, `GBP`, …) ricavata dal simbolo nel testo dello stipendio, altrimenti quella del sito; la tabella ne mostra il simbolo e l'export XLSX/CSV ha la colonna *Valuta*. Non c'è nessuna conversione: £50.000 e €50.000 pesano uguale nel punteggio. Le tariffe giornaliere di TotalJobs ("£700 per day") sono **annualizzate × 220 giorni lavorativi** (`WORK_DAYS_PER_YEAR` in `match.js`) per poter essere confrontate; è una stima, e la tabella la indica nel tooltip della cella. Testi non numerici ("Competitive", "Outside IR35") non danno nessun range.
 
 ## 4. Lista aziende
 
@@ -116,20 +126,20 @@ Senza l'opzione **Dati aziende** (o *Leggi anche i dettagli*) settore e sede non
 
 | Messaggio | Causa / soluzione |
 | --- | --- |
-| *La scheda attiva non è StepStone* | Passa a una scheda `www.stepstone.(de/at/be/nl/fr)`. |
+| *La scheda attiva non è un sito supportato* | Passa a una scheda `www.stepstone.(de/at/be/nl/fr)` o `www.totaljobs.com`. |
 | *Non è una pagina di risultati di ricerca* | Apri una ricerca (`/jobs/...`), non un singolo annuncio o la home. |
 | *La pagina non risponde* | Ricarica la scheda (F5). |
-| Avvisi gialli "Campo … mancante" / "Nessuna card trovata" | StepStone ha cambiato l'HTML: aggiorna i selettori (sezione 5). |
+| Avvisi gialli "Campo … mancante" / "Nessuna card trovata" | Il sito ha cambiato l'HTML: aggiorna i selettori (sezione 6). |
 | "Pagina N: …" / "⚠ pagine non lette" | Una pagina non è stata recuperata (blocco, errore di rete o HTML cambiato). Le altre vengono comunque lette; le richieste rifiutate con 429/503 vengono **ritentate automaticamente** (fino a 3 volte, con attesa crescente). Se restano pagine mancanti, abbassa le richieste in parallelo e rilancia. |
 
-## 6. Aggiornare i selettori se StepStone cambia l'HTML
+## 6. Aggiornare i selettori se un sito cambia l'HTML
 
-Tutti i selettori sono in **`extension/selectors.js`**, ognuno come elenco di alternative provate in ordine.
+I selettori di base sono in **`extension/selectors.js`**, ognuno come elenco di alternative provate in ordine. Le differenze di un sito (es. `salary` su TotalJobs) sono in **`extension/sites.js`**, nella voce del sito: un campo sovrascritto sostituisce quello di base e `[]` significa "questo sito non ha l'elemento".
 
 1. Apri una pagina di ricerca → `F12` → ispeziona una card annuncio.
 2. Cerca gli attributi **`data-at="…"`** (es. `job-item-title`, `job-item-company-name`). Sono molto più stabili delle classi `res-xxxx`, che sono hash generati automaticamente: **non usarle**.
 3. Aggiorna o aggiungi il selettore nel campo corrispondente (mettendo quello nuovo per primo e tenendo il vecchio come ripiego).
-4. `chrome://extensions` → ↻ sull'estensione, poi F5 sulla pagina StepStone.
+4. `chrome://extensions` → ↻ sull'estensione, poi F5 sulla pagina.
 
 Particolarità note, verificate sulle pagine di riferimento:
 
@@ -139,29 +149,36 @@ Particolarità note, verificate sulle pagine di riferimento:
 - **Scheda azienda**: nel dettaglio sta in `window.__PRELOADED_STATE__.JobAdContent` → `companyPassportData` (id, nome, indirizzo, dipendenti, settori). Viene letta con un parser dedicato (`extractCompanyPassport` in `content.js`) e, se manca, si ripiega sul JSON-LD (`hiringOrganization`, `industry`, `addressCountry`). Il link al profilo in lista è `a[data-at="company-logo"]` (`results.companyLink`).
 - **Dettaglio**: la fonte primaria è il JSON-LD `JobPosting` della pagina, con ripiego sugli attributi `data-at="metadata-*"` / `section-text-*`.
 
+### Aggiungere un sito
+
+1. Salva una pagina di ricerca e una di dettaglio e verifica con DevTools quali selettori di base funzionano.
+2. Aggiungi una voce in `SITES` (`extension/sites.js`): `id`, `label`, `hostRe`, `matches`, `currency`, `country`, `companyIdFromUrl`, `jobIdFromUrl` e gli override di `selectors`.
+3. Ripeti gli host in `manifest.json` (`host_permissions` e `content_scripts[0].matches`): `sites.test.js` verifica che coincidano.
+4. Aggiungi le pagine di esempio in `test/fixtures.js` e un test come `totaljobs.test.js`.
+
 ### Test dei parser
 
-I test verificano i selettori su due pagine StepStone salvate (una di ricerca e una di dettaglio, ~8 MB in tutto, **non incluse nel repository**). Salvale come `stepston-result-page.html` e `stepstone-job-detail-page.html` in una cartella e indicala con `STEPSTONE_FIXTURES` (di default si cerca nella radice del repo; se mancano i test vengono saltati).
+I test verificano i selettori su pagine salvate (una di ricerca e una di dettaglio per sito, alcuni MB, **non incluse nel repository**). Nomi attesi: `stepston-result-page.html` e `stepstone-job-detail-page.html` (StepStone), `totaljobs-result-page.html` e `totaljobs-job-detail-page.html` (TotalJobs). Si cercano in `SCRAPER_FIXTURES` (o `STEPSTONE_FIXTURES`, per compatibilità), poi nella radice del repo e in `example/`; i blocchi di test senza le loro pagine vengono saltati.
 
 ```bash
 cd extension/test
 npm install
-STEPSTONE_FIXTURES=/percorso/alle/pagine npm test      # PowerShell: $env:STEPSTONE_FIXTURES="C:\percorso"; npm test
+SCRAPER_FIXTURES=/percorso/alle/pagine npm test      # PowerShell: $env:SCRAPER_FIXTURES="C:\percorso"; npm test
 ```
 
-`npm test` esegue `parse.test.js` (parser, aziende, XLSX), `popup.test.js` (popup e pulsante Pulisci cache, senza bisogno delle pagine StepStone) e `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; usa `fetch` simulato dentro jsdom).
+`npm test` esegue `sites.test.js` (registro dei siti, coerenza con il manifest, migrazione dello storage), `background.test.js` (service worker), `synthetic.test.js` (percorso StepStone su card sintetiche), `parse.test.js` (parser StepStone, aziende, XLSX), `totaljobs.test.js` (parser TotalJobs, stipendi e valuta), `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; una volta per sito con pagina di esempio; usa `fetch` simulato dentro jsdom) e `popup.test.js` (popup, risultati per sito, pulsanti Pulisci cache; senza pagine di esempio).
 
 I test coprono anche lista aziende, classificazione Main Business e generazione XLSX (rilettura con `openpyxl`, se installato: `pip install openpyxl`).
 
-Dopo aver aggiornato `selectors.js`, salva una nuova pagina di esempio e adatta i valori attesi in `parse.test.js` per verificare subito che l'estrazione funzioni.
+Dopo aver aggiornato `selectors.js` o `sites.js`, salva una nuova pagina di esempio e adatta i valori attesi in `parse.test.js` per verificare subito che l'estrazione funzioni.
 
 ## 7. Limiti e uso responsabile
 
 - L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni.
-- Le pagine successive, i dettagli e le schede azienda vengono scaricati in parallelo (default 5 richieste contemporanee) con brevi pause casuali (≈ 0,15–0,4 s) e ritentativo su 429/503. Non alzare in modo aggressivo le richieste in parallelo: StepStone può limitare o bloccare traffico anomalo. Tetto di sicurezza: 200 pagine per ricerca.
-- Verifica che l'uso sia coerente con i **Termini di servizio di StepStone**; lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
+- Le pagine successive, i dettagli e le schede azienda vengono scaricati in parallelo (default 5 richieste contemporanee) con brevi pause casuali (≈ 0,15–0,4 s) e ritentativo su 429/503. Non alzare in modo aggressivo le richieste in parallelo: i siti possono limitare o bloccare traffico anomalo. Tetto di sicurezza: 200 pagine per ricerca.
+- Verifica che l'uso sia coerente con i **Termini di servizio di StepStone e TotalJobs**; lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
 - Non è prevista la lettura di pagine caricate solo a scorrimento (infinite scroll): StepStone usa paginazione classica (`?page=N`), gestita via URL.
-- Permessi richiesti: `storage` (profilo e risultati), `activeTab` + `scripting` (iniettare il content script in schede già aperte), accesso ai soli domini StepStone elencati.
+- Permessi richiesti: `storage` (profilo e risultati), `activeTab` + `scripting` (iniettare il content script in schede già aperte), accesso ai soli domini supportati elencati sopra.
 
 ## 8. Licenza e contributi
 
@@ -180,7 +197,7 @@ In pratica: se modifichi l'estensione e la distribuisci, o la metti a disposizio
 attraverso una rete (clausola AGPL §13), devi rendere disponibile il codice sorgente della tua
 versione con la stessa licenza.
 
-StepStone è un marchio dei rispettivi titolari; questo progetto è indipendente e non è affiliato né
-approvato da StepStone.
+StepStone e TotalJobs sono marchi dei rispettivi titolari; questo progetto è indipendente e non è affiliato né
+approvato da StepStone o TotalJobs.
 
 Vuoi contribuire? Leggi [CONTRIBUTING.md](CONTRIBUTING.md).

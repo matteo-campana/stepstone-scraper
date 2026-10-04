@@ -2,8 +2,9 @@
  * popup.js — UI: profilo utente, avvio scraping, tabella risultati, export.
  *
  * Il lavoro pesante avviene nel content script; qui si legge solo lo stato
- * da chrome.storage.local (scrapeState, lastResults), quindi chiudere il
- * popup durante lo scraping non interrompe nulla.
+ * da chrome.storage.local (scrapeState:<sito>, results:<sito>), quindi chiudere il
+ * popup durante lo scraping non interrompe nulla. Si mostrano i risultati di UN sito
+ * alla volta: quello della scheda attiva (o l'ultimo usato).
  */
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -11,15 +12,39 @@
   const PROFILE_FIELDS = ['skills', 'years', 'position', 'salaryMin', 'salaryMax', 'locations'];
 
   const ERRORS = {
-    WRONG_DOMAIN: 'La scheda attiva non è StepStone (domini supportati: .de, .at, .be, .nl, .fr).',
-    NOT_RESULTS_PAGE: 'Questa non è una pagina di risultati di ricerca. Apri una ricerca (es. stepstone.de/jobs/...) e riprova.',
+    WRONG_DOMAIN: 'La scheda attiva non è un sito supportato. Siti supportati: ' + SSSites.hostList().join('; ') + '.',
+    NOT_RESULTS_PAGE: 'Questa non è una pagina di risultati di ricerca. Apri una ricerca (es. /jobs/...) e riprova.',
     NO_TAB: 'Nessuna scheda attiva trovata.',
     ALREADY_RUNNING: 'Uno scraping è già in corso su questa scheda.',
-    NO_RESPONSE: 'La pagina non risponde. Ricarica la scheda StepStone (F5) e riprova.'
+    NO_RESPONSE: 'La pagina non risponde. Ricarica la scheda (F5) e riprova.'
   };
   const errText = (code) => ERRORS[code] || `Errore: ${code}`;
 
-  let results = null; // { jobs, meta }
+  let results = null; // { jobs, meta } del sito visualizzato
+  let viewSite = SSSites.DEFAULT; // sito di cui si mostrano risultati, stato e cache
+
+  /** Etichetta del sito dei risultati mostrati (i link azienda puntano a quel sito, non a quello della scheda). */
+  const resultSite = () => SSSites.byId(results && results.meta && results.meta.siteId) || viewSite;
+  const filePrefix = () => resultSite().id;
+
+  /** Stipendio per la tabella: simbolo della valuta solo se il testo non ne ha già uno (es. "57515.00"). */
+  function formatSalary(j) {
+    const raw = (j.salary || '').replace(/\s*\(.*\)/, '');
+    if (!raw) return '';
+    const sym = SSMatch.CURRENCY_SYMBOL[j.currency] || '';
+    return sym && !/[€£$]|CHF/.test(raw) && /\d/.test(raw) ? `${sym} ${raw}` : raw;
+  }
+
+  /** Tooltip con la stima annua quando la cifra non è annuale (tariffa giornaliera, mensile, oraria). */
+  function salaryEstimate(j) {
+    const basis = SSMatch.salaryBasis(j.salary || '');
+    const r = basis === 'year' ? null : SSMatch.parseSalaryRange(j.salary);
+    if (!r) return '';
+    const sym = SSMatch.CURRENCY_SYMBOL[j.currency] || '';
+    const fmt = (v) => sym + v.toLocaleString('it-IT');
+    const how = basis === 'day' ? `stima: ${SSMatch.WORK_DAYS_PER_YEAR} giorni lavorativi` : 'stima';
+    return `≈ ${fmt(r.min)}${r.max !== r.min ? '–' + fmt(r.max) : ''}/anno (${how})`;
+  }
 
   // ---------------------------------------------------------------
   // Tab
@@ -53,7 +78,7 @@
     if (results && results.jobs.length) {
       results.jobs = rescore(results.jobs, profile);
       results.companies = buildCompanies();
-      await chrome.storage.local.set({ lastResults: results });
+      await chrome.storage.local.set({ [SSSites.resultsKey(viewSite)]: results });
       render();
     }
     setMsg('profileMsg', 'Profilo salvato ✓', 'ok');
@@ -121,6 +146,7 @@
     const running = st && st.status === 'running' && !stale;
     $('btnScrape').disabled = running;
     $('btnClearCache').disabled = running; // altrimenti lo scraping in corso riscriverebbe i risultati subito dopo
+    $('btnClearCacheAll').disabled = running;
     $('btnCancel').hidden = !running;
     $('progress').hidden = !running;
     if (running && st.total) { $('progress').max = st.total; $('progress').value = st.done || 0; }
@@ -167,7 +193,7 @@
 
       const links = document.createElement('td');
       links.className = 'links';
-      [[c.url, 'StepStone'], [c.linkedin, 'LinkedIn']].forEach(([href, label]) => {
+      [[c.url, resultSite().label], [c.linkedin, 'LinkedIn']].forEach(([href, label]) => {
         if (!href) return;
         const a = document.createElement('a');
         a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = label;
@@ -226,7 +252,9 @@
       title.append(a, small);
 
       const loc = document.createElement('td'); loc.textContent = j.location;
-      const sal = document.createElement('td'); sal.textContent = (j.salary || '').replace(/\s*\(.*\)/, '');
+      const sal = document.createElement('td'); sal.textContent = formatSalary(j);
+      const est = salaryEstimate(j);
+      if (est) sal.title = est;
 
       tr.append(score, title, loc, sal);
       tbody.appendChild(tr);
@@ -248,7 +276,7 @@
 
   $('btnJson').addEventListener('click', () => {
     if (!results) return;
-    download(`stepstone-${stamp()}.json`, 'application/json', JSON.stringify(results, null, 2));
+    download(`${filePrefix()}-${stamp()}.json`, 'application/json', JSON.stringify(results, null, 2));
   });
 
   // Colonne annunci per CSV/XLSX (le colonne aziende vengono da companies.js)
@@ -261,6 +289,7 @@
     { key: 'contractType', label: 'Contratto' },
     { key: 'workType', label: 'Modalità' },
     { key: 'salary', label: 'Stipendio' },
+    { key: 'currency', label: 'Valuta' },
     { key: 'postedAt', label: 'Data' },
     { key: 'matchedSkills', label: 'Skill trovate' },
     { key: 'missingSkills', label: 'Skill mancanti' },
@@ -285,12 +314,12 @@
 
   $('btnCsv').addEventListener('click', () => {
     if (!results) return;
-    download(`stepstone-annunci-${stamp()}.csv`, 'text/csv;charset=utf-8', toCsv(JOB_COLUMNS, results.jobs.map(jobRow)));
+    download(`${filePrefix()}-annunci-${stamp()}.csv`, 'text/csv;charset=utf-8', toCsv(JOB_COLUMNS, results.jobs.map(jobRow)));
   });
 
   $('btnCsvCo').addEventListener('click', () => {
     if (!results || !results.companies) return;
-    download(`stepstone-aziende-${stamp()}.csv`, 'text/csv;charset=utf-8', toCsv(SSCompanies.COMPANY_COLUMNS, results.companies));
+    download(`${filePrefix()}-aziende-${stamp()}.csv`, 'text/csv;charset=utf-8', toCsv(SSCompanies.COMPANY_COLUMNS, results.companies));
   });
 
   // XLSX: un solo file con due fogli. "Aziende" per primo: è la tabella di lavoro dell'utente.
@@ -300,43 +329,85 @@
       { name: 'Aziende', columns: SSCompanies.COMPANY_COLUMNS, rows: results.companies || [] },
       { name: 'Annunci', columns: JOB_COLUMNS, rows: results.jobs.map(jobRow) }
     ]);
-    download(`stepstone-${stamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', bytes);
+    download(`${filePrefix()}-${stamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', bytes);
   });
 
   // ---------------------------------------------------------------
   // Cache: risultati e stato salvati. Profilo e opzioni NON sono cache e restano.
   // ---------------------------------------------------------------
-  const CACHE_KEYS = ['lastResults', 'scrapeState'];
+  const siteKeys = (site) => [SSSites.resultsKey(site), SSSites.stateKey(site)];
+  const allCacheKeys = () => SSSites.allCacheKeys().concat(SSSites.LEGACY_KEYS);
 
   const formatBytes = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 
   async function updateCacheSize() {
-    const bytes = await chrome.storage.local.getBytesInUse(CACHE_KEYS);
+    const bytes = await chrome.storage.local.getBytesInUse(siteKeys(viewSite));
     $('cacheSize').textContent = bytes > 0 ? `(${formatBytes(bytes)})` : '';
+    const total = await chrome.storage.local.getBytesInUse(allCacheKeys());
+    $('cacheSizeAll').textContent = total > 0 ? `(${formatBytes(total)})` : '';
   }
 
-  $('btnClearCache').addEventListener('click', async () => {
-    if (!window.confirm('Eliminare gli annunci e le aziende estratti e lo stato salvato?\nIl profilo e le opzioni non vengono toccati.')) return;
-    await chrome.storage.local.remove(CACHE_KEYS);
-    chrome.runtime.sendMessage({ type: 'CLEAR_HIGHLIGHT' }).catch(() => { /* nessuna scheda StepStone attiva */ });
-    results = null;
+  /** Svuota le chiavi date dopo conferma; `scope` dice nel messaggio cosa viene eliminato. */
+  async function clearCache(keys, scope) {
+    if (!window.confirm(`Eliminare gli annunci e le aziende estratti e lo stato salvato${scope}?\nIl profilo e le opzioni non vengono toccati.`)) return;
+    await chrome.storage.local.remove(keys);
+    chrome.runtime.sendMessage({ type: 'CLEAR_HIGHLIGHT' }).catch(() => { /* nessuna scheda supportata attiva */ });
+    results = keys.includes(SSSites.resultsKey(viewSite)) ? null : results;
     render();
     setStatus('Cache svuotata ✓', 'ok');
     updateCacheSize();
-  });
+  }
+
+  $('btnClearCache').addEventListener('click', () => clearCache(siteKeys(viewSite), ` di ${viewSite.label}`));
+  $('btnClearCacheAll').addEventListener('click', () => clearCache(allCacheKeys(), ' di tutti i siti'));
 
   // ---------------------------------------------------------------
   // Init + aggiornamenti live
   // ---------------------------------------------------------------
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes.scrapeState) applyState(changes.scrapeState.newValue);
-    if (changes.lastResults) { results = changes.lastResults.newValue || null; render(); }
-    if (changes.lastResults || changes.scrapeState) updateCacheSize();
+    const rk = SSSites.resultsKey(viewSite), sk = SSSites.stateKey(viewSite);
+    if (changes[sk]) applyState(changes[sk].newValue);
+    if (changes[rk]) { results = changes[rk].newValue || null; render(); }
+    // i risultati di un altro sito non cambiano la tabella, solo la dimensione della cache
+    if (Object.keys(changes).some((k) => allCacheKeys().includes(k))) updateCacheSize();
   });
 
+  /** Sito della scheda attiva (null se non è supportato). Passa dal service worker: il popup non ha il permesso "tabs". */
+  async function activeTabSite() {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'ACTIVE_SITE' });
+      return (res && res.ok && SSSites.byId(res.siteId)) || null;
+    } catch (e) { return null; }
+  }
+
+  /** Etichetta sito: chip nell'intestazione e testi "il sito". `stale` = non è la scheda attiva. */
+  function applySiteCopy(site, stale) {
+    document.querySelectorAll('[data-site-name]').forEach((el) => { el.textContent = site.label; });
+    const chip = $('siteChip');
+    chip.textContent = stale ? `${site.label} · ultima estrazione` : site.label;
+    chip.classList.toggle('stale', !!stale);
+    chip.hidden = false;
+    $('cacheScope').textContent = ' · ' + site.label;
+  }
+
   (async function init() {
-    const { profile, options, lastResults, scrapeState } = await chrome.storage.local.get(['profile', 'options', 'lastResults', 'scrapeState']);
+    // chiavi dello storage a slot unico (versioni precedenti) → per-sito; idempotente
+    await SSSites.migrateFlatKeys(chrome.storage.local).catch(() => { /* ritenta alla prossima apertura */ });
+    const [stored, tabSite] = await Promise.all([
+      chrome.storage.local.get(['profile', 'options', 'lastSiteId'].concat(SSSites.allCacheKeys())),
+      activeTabSite()
+    ]);
+    const { profile, options, lastSiteId } = stored;
+
+    // sito mostrato: scheda attiva → ultimo usato → estrazione più recente → predefinito
+    const scrapedAt = (s) => (stored[SSSites.resultsKey(s)].meta || {}).scrapedAt || '';
+    const recent = SSSites.SITES.filter((s) => stored[SSSites.resultsKey(s)])
+      .sort((a, b) => scrapedAt(b).localeCompare(scrapedAt(a)))[0];
+    viewSite = tabSite || SSSites.byId(lastSiteId) || recent || SSSites.DEFAULT;
+    applySiteCopy(viewSite, !tabSite);
+    if (tabSite && tabSite.id !== lastSiteId) chrome.storage.local.set({ lastSiteId: tabSite.id });
+
     fillProfile(profile);
     if (options) {
       $('concurrency').value = options.concurrency || 5;
@@ -344,9 +415,9 @@
       $('companyDetails').checked = options.companyDetails !== false;
       $('highlight').checked = options.highlight !== false;
     }
-    results = lastResults || null;
+    results = stored[SSSites.resultsKey(viewSite)] || null;
     render();
-    applyState(scrapeState);
+    applyState(stored[SSSites.stateKey(viewSite)]);
     updateCacheSize();
   })();
 })();

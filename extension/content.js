@@ -1,5 +1,5 @@
 /**
- * content.js — estrazione dati dal DOM di StepStone.
+ * content.js — estrazione dati dal DOM dei siti supportati (StepStone, TotalJobs: vedi sites.js).
  *
  * Struttura:
  *   1. Utility (query con fallback, pulizia testo)
@@ -8,7 +8,7 @@
  *   4. Orchestrazione scraping (paginazione via fetch + arricchimento)
  *   5. Evidenziazione in pagina e messaggistica con popup/background
  *
- * I selettori NON sono qui: stanno in selectors.js.
+ * I selettori NON sono qui: stanno in selectors.js (base) e sites.js (differenze per sito).
  * Le funzioni di parsing sono pure (ricevono un Document/Element) così
  * funzionano sia sul DOM live sia su pagine scaricate con DOMParser,
  * e sono testabili in Node (vedi test/parse.test.js).
@@ -16,9 +16,17 @@
 (function (root) {
   'use strict';
 
-  const SEL = root.SS_SELECTORS || require('./selectors.js');
+  const Sites = root.SSSites || require('./sites.js');
   const Match = root.SSMatch || require('./match.js');
   const Companies = root.SSCompanies || require('./companies.js');
+
+  // Sito attivo e relativi selettori. I parser sono SINCRONI e cambiano sito solo in ingresso
+  // (useSite): non mettere mai un `await` tra useSite() e l'ultima lettura di SEL.
+  let SITE = Sites.forHost(typeof location !== 'undefined' ? location.hostname : '') || Sites.DEFAULT;
+  let SEL = SITE.selectors;
+  function useSite(site) { if (site && site !== SITE) { SITE = site; SEL = site.selectors; } return SITE; }
+  /** Sito di un URL; senza URL valido resta quello corrente (utile nei test Node). */
+  const siteFromUrl = (u) => (u && Sites.forUrl(u)) || SITE;
 
   // ---------------------------------------------------------------
   // 1. UTILITY
@@ -84,19 +92,20 @@
     try { return new URL(href, baseUrl).href; } catch (e) { return ''; }
   }
 
-  /** ID azienda dal link profilo: .../cmp/de/yoummday-gmbh-217684/jobs → 217684 */
+  /** ID azienda dal link profilo (formato per sito): StepStone .../cmp/de/yoummday-gmbh-217684/jobs → 217684; TotalJobs ...?cmpId=1389546 */
   function companyIdFromUrl(url) {
-    const m = (url || '').match(/\/cmp\/[^/]+\/[^/]*?-(\d+)(?:\/|$|\.)/);
-    return m ? m[1] : '';
+    return SITE.companyIdFromUrl(url);
   }
+
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const jitter = (min, max) => sleep(min + Math.random() * (max - min));
 
-  /** Domini StepStone supportati (devono coincidere con manifest.json). */
+  /** Domini supportati (definiti in sites.js, da ripetere in manifest.json). */
   function isSupportedHost(hostname) {
-    return /^www\.stepstone\.(de|at|be|nl|fr)$/i.test(hostname);
+    return !!Sites.forHost(hostname);
   }
+
 
   // ---------------------------------------------------------------
   // 2. PAGINA RISULTATI
@@ -107,7 +116,8 @@
    * Il dettaglio va controllato per primo: contiene a sua volta card di
    * annunci correlati che altrimenti sembrerebbero una lista risultati.
    */
-  function detectPageType(doc) {
+  function detectPageType(doc, baseUrl) {
+    useSite(siteFromUrl(baseUrl || (doc && doc.baseURI)));
     const hasJobPosting = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))
       .some((s) => /"@type"\s*:\s*"JobPosting"/.test(s.textContent));
     if (queryFirst(doc, SEL.detail.title) || hasJobPosting) return 'detail';
@@ -133,13 +143,12 @@
     return '';
   }
 
-  /** ID annuncio: da id="job-item-123" oppure dall'URL "...--123-inline.html". */
+  /** ID annuncio: da id="job-item-123" oppure dall'URL (formato per sito). */
   function extractJobId(card, url) {
     const m1 = (card.getAttribute('id') || '').match(/(\d{5,})/);
-    if (m1) return m1[1];
-    const m2 = (url || '').match(/--(\d{5,})-inline/);
-    return m2 ? m2[1] : '';
+    return m1 ? m1[1] : SITE.jobIdFromUrl(url);
   }
+
 
   /**
    * Estrae tutte le card di una pagina risultati.
@@ -148,6 +157,7 @@
    * @param {string[]} warnings  accumula avvisi su selettori mancanti
    */
   function parseResultCards(doc, baseUrl, warnings) {
+    useSite(siteFromUrl(baseUrl));
     warnings = warnings || [];
     const container = queryFirst(doc, SEL.results.container);
     if (!container) warnings.push('Contenitore lista non trovato (results.container): uso l\'intero documento.');
@@ -156,7 +166,7 @@
     // scarta le card dentro blocchi di raccomandazioni
     cards = cards.filter((c) => !SEL.results.excludeAncestor.some((s) => { try { return c.closest(s); } catch (e) { return false; } }));
     if (!cards.length) {
-      warnings.push('Nessuna card trovata (results.card): StepStone potrebbe aver cambiato l\'HTML.');
+      warnings.push(`Nessuna card trovata (results.card): ${SITE.label} potrebbe aver cambiato l'HTML.`);
       return [];
     }
 
@@ -185,10 +195,12 @@
         snippet: textOf(card, SEL.results.snippet).replace(/\s*mehr$/i, ''),
         postedAt: timeEl ? (timeEl.getAttribute('datetime') || visibleText(timeEl)) : '',
         isNew: !!queryFirst(card, SEL.results.topLabel),
-        badges: Array.from(card.querySelectorAll(SEL.results.badges[0])).map((b) => visibleText(b)),
+        badges: queryAllFirst(card, SEL.results.badges).map((b) => visibleText(b)),
         url,
+        currency: '',
         contractType: '', workType: '', description: '', requirements: ''
       };
+      job.currency = job.salary ? Match.detectCurrency(job.salary, SITE.currency) : '';
       if (!job.title) miss('title (results.title)');
       if (!job.company) miss('company (results.company)');
       if (!job.location) miss('location (results.location)');
@@ -215,21 +227,23 @@
   const OF_RE = /(\d+)\s*(?:of|von|de|van|sur|di)\s*(\d+)\s*$/i;
 
   function getPagination(doc, url) {
+    useSite(siteFromUrl(url));
     let current = 1;
     try { current = parseInt(new URL(url).searchParams.get('page'), 10) || 1; } catch (e) { /* noop */ }
     let total = null;
+    let totalSource = null; // 'status' | 'aria' | 'href'
 
     const nav = queryFirst(doc, SEL.results.pagination);
     if (nav) {
       const status = queryFirst(nav, SEL.results.paginationStatus);
       const m = status && visibleText(status).match(OF_RE);
-      if (m) { current = parseInt(m[1], 10); total = parseInt(m[2], 10); }
+      if (m) { current = parseInt(m[1], 10); total = parseInt(m[2], 10); totalSource = 'status'; }
 
       if (!total) {
         const totals = Array.from(nav.querySelectorAll('[aria-label]'))
           .map((el) => (el.getAttribute('aria-label') || '').match(OF_RE))
           .filter(Boolean).map((x) => parseInt(x[2], 10));
-        if (totals.length) total = Math.max(...totals);
+        if (totals.length) { total = Math.max(...totals); totalSource = 'aria'; }
       }
 
       if (!total) {
@@ -237,24 +251,28 @@
           const mm = (a.getAttribute('href') || '').match(/[?&]page=(\d+)/);
           return mm ? parseInt(mm[1], 10) : 0;
         }).filter((n) => n > 0);
-        if (pages.length) total = Math.max(...pages, current);
+        if (pages.length) { total = Math.max(...pages, current); totalSource = 'href'; }
       }
     }
 
     const countEl = queryFirst(doc, SEL.results.totalCount);
     const totalResults = countEl ? parseInt(visibleText(countEl).replace(/\D/g, ''), 10) || null : null;
-    return { current, total, totalResults };
+    return { current, total, totalResults, totalSource };
   }
 
   /**
    * Controllo di coerenza: con N risultati e P annunci per pagina le pagine sono ceil(N/P).
-   * Se il totale letto dal DOM è molto più alto, è un errore di lettura: si usa il valore atteso.
+   * Se il totale letto dal DOM è assurdamente più alto, è un errore di lettura: si usa il valore atteso.
    */
-  function sanePageTotal(total, totalResults, perPage) {
+  function sanePageTotal(total, totalResults, perPage, slack) {
     if (!total || !totalResults || !perPage) return total;
     const expected = Math.ceil(totalResults / perPage);
-    return total > expected + 1 ? expected : total;
+    // Si corregge solo un'eccedenza ASSURDA (numeri fusi tipo "5212345"): un sito che dichiara
+    // più pagine di ceil(N/perPage) ma entro un fattore ~2 (es. TotalJobs 25 vs 19) conta in modo diverso.
+    const limit = Math.max(expected * (slack || 2) + 5, expected + 1);
+    return total > limit ? expected : total;
   }
+
 
   /** Stesso URL di ricerca (filtri inclusi) ma con ?page=N. */
   function buildPageUrl(href, page) {
@@ -295,8 +313,12 @@
       const t = sc.textContent;
       const i = t.indexOf(key);
       if (i < 0) continue;
-      const start = t.indexOf('{', i + key.length);
-      if (start < 0) continue;
+      // il valore deve essere un oggetto: con "companyPassportData": null non si deve agganciare l'oggetto successivo
+      const colon = t.indexOf(':', i + key.length);
+      if (colon < 0) continue;
+      let start = colon + 1;
+      while (start < t.length && t.charCodeAt(start) <= 32) start++;
+      if (t[start] !== '{') continue;
       let depth = 0, inStr = false, esc = false;
       for (let k = start; k < t.length; k++) {
         const c = t[k];
@@ -313,7 +335,7 @@
 
   /** Dati azienda dal dettaglio: passport (preferito) + JSON-LD + link DOM come ripiego. */
   function parseCompany(doc, jp, baseUrl) {
-    const pp = extractCompanyPassport(doc) || {};
+    const pp = (SITE.extractCompany ? SITE.extractCompany(doc) : extractCompanyPassport(doc)) || {};
     const org = (jp && jp.hiringOrganization) || {};
     const loc = jp && (Array.isArray(jp.jobLocation) ? jp.jobLocation[0] : jp.jobLocation);
     const addr = (loc && loc.address) || {};
@@ -339,8 +361,9 @@
 
   /** Dettagli completi di un annuncio. JSON-LD come fonte robusta, DOM come arricchimento/fallback. */
   function parseDetail(doc, warnings, baseUrl) {
+    useSite(siteFromUrl(baseUrl || doc.baseURI));
     warnings = warnings || [];
-    baseUrl = baseUrl || doc.baseURI || 'https://www.stepstone.de/';
+    baseUrl = baseUrl || doc.baseURI || SITE.baseUrl;
     const jp = findJobPosting(doc);
     const d = {};
 
@@ -356,10 +379,14 @@
     d.salary = textOf(doc, SEL.detail.salary);
     if (!d.salary && jp && jp.baseSalary && jp.baseSalary.value) {
       const v = jp.baseSalary.value;
-      if (v.minValue || v.maxValue) d.salary = `${v.minValue || ''} - ${v.maxValue || ''} ${jp.baseSalary.currency || '€'}`;
+      // StepStone: minValue/maxValue; TotalJobs: un solo `value`
+      const lo = v.minValue ?? v.value, hi = v.maxValue ?? v.value, cur = jp.baseSalary.currency || '';
+      if (lo || hi) d.salary = (lo && hi && lo !== hi ? `${lo} - ${hi} ${cur}` : `${lo || hi} ${cur}`).trim();
+      if (cur) d.currency = String(cur).toUpperCase();
     }
 
     const desc = textOf(doc, SEL.detail.description);
+    d.currency = d.currency || (d.salary ? Match.detectCurrency(d.salary, SITE.currency) : '');
     d.description = desc || stripHtml(jp && jp.description);
     d.requirements = textOf(doc, SEL.detail.requirements);
     d.benefits = textOf(doc, SEL.detail.benefits);
@@ -405,7 +432,7 @@
     throw lastErr;
   }
 
-  const setState = (patch) => chrome.storage.local.set({ scrapeState: { updatedAt: Date.now(), ...patch } });
+  const setState = (patch) => chrome.storage.local.set({ [Sites.stateKey(SITE)]: { updatedAt: Date.now(), ...patch } });
 
   /**
    * Esegue fn su tutti gli elementi con al massimo `concurrency` chiamate in volo.
@@ -445,6 +472,7 @@
     opts.concurrency = clampConcurrency(opts.concurrency);
     const warnings = [];
     const href = location.href;
+    useSite(siteFromUrl(href));
 
     const { profile = {} } = await chrome.storage.local.get('profile');
     const pg = getPagination(document, href);
@@ -455,7 +483,7 @@
     byPage.set(pg.current, firstCards);
 
     // il totale pagine dichiarato deve essere coerente col numero di risultati
-    const saneTotal = sanePageTotal(pg.total, pg.totalResults, firstCards.length);
+    const saneTotal = sanePageTotal(pg.total, pg.totalResults, firstCards.length, SITE.pageTotalSlack);
     if (saneTotal !== pg.total) {
       warnings.push(`Totale pagine letto dal DOM (${pg.total}) incoerente con ${pg.totalResults} risultati: uso ${saneTotal}.`);
       pg.total = saneTotal;
@@ -485,7 +513,10 @@
       }
     };
 
-    await runPool(rest, (p) => fetchPage(p, !!pg.total), opts.concurrency);
+    // Pagine oltre ceil(risultati/per-pagina) possono essere davvero vuote (il sito conta in modo diverso):
+    // si leggono lo stesso ma una pagina vuota non è un errore.
+    const expectedPages = pg.totalResults && firstCards.length ? Math.ceil(pg.totalResults / firstCards.length) : null;
+    await runPool(rest, (p) => fetchPage(p, !!pg.total && (!expectedPages || p <= expectedPages)), opts.concurrency);
 
     // totale non noto: ondate di `concurrency` pagine in avanti finché una non produce annunci
     if (!pg.total) {
@@ -519,6 +550,7 @@
           job.contractType = d.contractType || job.contractType;
           job.workType = d.workType || job.workType;
           job.salary = job.salary || d.salary;
+          job.currency = job.currency || d.currency || '';
           job.description = d.description;
           job.requirements = d.requirements;
           job.benefits = d.benefits;
@@ -557,6 +589,8 @@
       companies: Companies.buildCompanies(jobs, location.hostname),
       meta: {
         pageUrl: href,
+        siteId: SITE.id,
+        siteLabel: SITE.label,
         searchTitle: visibleText(document.querySelector('h1')),
         totalResults: pg.totalResults,
         pagesScraped: [firstPage, lastPage],
@@ -566,7 +600,7 @@
         warnings: Array.from(new Set(warnings))
       }
     };
-    await chrome.storage.local.set({ lastResults: results });
+    await chrome.storage.local.set({ [Sites.resultsKey(SITE)]: results });
     if (opts.highlight) highlightCards(jobs);
     await setState({ status: 'done', text: `${jobs.length} annunci, ${results.companies.length} aziende estratti.`, done: 1, total: 1 });
     return results;
@@ -581,7 +615,7 @@
     clearHighlight();
     for (const job of jobs) {
       if (!job.id || !job.match || job.match.score == null) continue;
-      const card = document.getElementById('job-item-' + job.id);
+      const card = document.getElementById(SITE.cardIdPrefix + job.id);
       if (!card) continue;
       const level = job.match.score >= 70 ? 'high' : job.match.score >= 40 ? 'mid' : 'low';
       const badge = document.createElement('div');
@@ -641,7 +675,7 @@
 
   const api = {
     clean, visibleText, queryFirst, detectPageType, parseResultCards, getPagination, sanePageTotal, buildPageUrl,
-    pageSequence, runPool, parseDetail, parseCompany, extractCompanyPassport, companyIdFromUrl, findJobPosting, extractCardSalary, isSupportedHost
+    pageSequence, runPool, useSite, activeSite: () => SITE, parseDetail, parseCompany, extractCompanyPassport, companyIdFromUrl, findJobPosting, extractCardSalary, isSupportedHost
   };
   root.SSContent = api;
   if (typeof module !== 'undefined') module.exports = api;

@@ -10,6 +10,13 @@
   // Pesi dei criteri (modificabili)
   const WEIGHTS = { skills: 50, position: 20, salary: 10, location: 10, experience: 10 };
 
+  /** Giorni lavorativi/anno per annualizzare una tariffa giornaliera (stima: ~200–230 reali). */
+  const WORK_DAYS_PER_YEAR = 220;
+  const CURRENCY_SYMBOL = { EUR: '€', GBP: '£', USD: '$', CHF: 'CHF' };
+  const DAY_RE = /\bper day\b|\bday rate\b|\bdaily\b|\/ ?day\b|\bper diem\b|\bpro tag\b|\btagessatz\b|\bpar jour\b|\bper dag\b/;
+  const MONTH_RE = /monat|month|mois|maand/;
+  const HOUR_RE = /stunde|hour|heure|uur/;
+
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const norm = (s) => (s || '').toLowerCase().normalize('NFKC');
 
@@ -46,11 +53,31 @@
     let [min, max] = [nums[0], nums.length > 1 ? nums[1] : nums[0]];
     if (min > max) [min, max] = [max, min];
     const t = norm(text);
-    if (/monat|month|mois|maand/.test(t)) { min *= 12; max *= 12; }
-    else if (/stunde|hour|heure|uur/.test(t)) { min *= 1800; max *= 1800; }
+    if (MONTH_RE.test(t)) { min *= 12; max *= 12; }
+    else if (DAY_RE.test(t)) { min *= WORK_DAYS_PER_YEAR; max *= WORK_DAYS_PER_YEAR; }
+    else if (HOUR_RE.test(t)) { min *= 1800; max *= 1800; }
     // valori irrealistici → scarta (es. numeri che non sono stipendi)
     if (max < 1000) return null;
     return { min, max };
+  }
+
+  /** Periodo in cui è espressa la cifra: 'year' | 'month' | 'day' | 'hour' (stessa logica di parseSalaryRange). */
+  function salaryBasis(text) {
+    const t = norm(text);
+    if (MONTH_RE.test(t)) return 'month';
+    if (DAY_RE.test(t)) return 'day';
+    if (HOUR_RE.test(t)) return 'hour';
+    return 'year';
+  }
+
+  /** Codice ISO della valuta dal testo dello stipendio; se assente, quella di ripiego (del sito). Nessuna conversione. */
+  function detectCurrency(text, fallback) {
+    const t = String(text || '');
+    if (/£|\bGBP\b/i.test(t)) return 'GBP';
+    if (/€|\bEUR\b/i.test(t)) return 'EUR';
+    if (/\$|\bUSD\b/i.test(t)) return 'USD';
+    if (/\bCHF\b/i.test(t)) return 'CHF';
+    return fallback || '';
   }
 
   /** Cerca "N Jahre/years Erfahrung" nel testo; ritorna il minimo di anni richiesti o null. */
@@ -121,7 +148,7 @@
     return { score, matchedSkills, missingSkills, parts };
   }
 
-  const api = { WEIGHTS, splitList, containsTerm, parseSalaryRange, requiredYears, computeMatch };
+  const api = { WEIGHTS, WORK_DAYS_PER_YEAR, CURRENCY_SYMBOL, splitList, containsTerm, parseSalaryRange, salaryBasis, detectCurrency, requiredYears, computeMatch };
   root.SSMatch = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

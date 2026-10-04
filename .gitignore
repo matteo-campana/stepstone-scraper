@@ -1,7 +1,10 @@
 node_modules/
 
 # Pagine StepStone salvate come fixture di test: contengono chiavi pubbliche di terzi (analytics, Google, ecc.)
-# e non vanno committate. Tenerle fuori dal repo e usare STEPSTONE_FIXTURES (vedi README).
+# e non vanno committate. Tenerle fuori dal repo e usare SCRAPER_FIXTURES (vedi README).
 stepston-result-page.html
 stepstone-job-detail-page.html
+totaljobs-result-page.html
+totaljobs-job-detail-page.html
 *.saved.html
+example/**/*

@@ -1,9 +1,10 @@
-// Test offline dei parser sulle pagine salvate nella radice del repo.
+// Test offline dei parser StepStone sulle pagine salvate (quelle TotalJobs: totaljobs.test.js).
 // Uso: cd extension/test && npm install && npm test
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { JSDOM } = require('jsdom');
+const { FIXTURES: FX, fixturePath, readFixture, skip } = require('./fixtures.js');
 
 const Content = require('../content.js');
 const Match = require('../match.js');
@@ -12,13 +13,12 @@ const Xlsx = require('../xlsx.js');
 const os = require('node:os');
 
 // Le pagine StepStone di esempio non sono nel repo (pesano ~8 MB): indicare la cartella con
-// STEPSTONE_FIXTURES=<cartella> (di default la radice del repo). Senza le pagine i test vengono saltati.
-const FIXTURES = process.env.STEPSTONE_FIXTURES || path.join(__dirname, '..', '..');
-if (!fs.existsSync(path.join(FIXTURES, 'stepston-result-page.html'))) {
-  console.log('SALTATO: pagine di esempio non trovate in ' + FIXTURES + ' (impostare STEPSTONE_FIXTURES).');
+// SCRAPER_FIXTURES=<cartella> (o STEPSTONE_FIXTURES; di default radice del repo ed example/). Senza le pagine i test vengono saltati.
+if (!fixturePath(FX.stepstone.result) || !fixturePath(FX.stepstone.detail)) {
+  skip(FX.stepstone.result + ' / ' + FX.stepstone.detail);
   process.exit(0);
 }
-const load = (f, url) => new JSDOM(fs.readFileSync(path.join(FIXTURES, f), 'utf8'), { url }).window.document;
+const load = (f, url) => new JSDOM(readFixture(f), { url }).window.document;
 let n = 0;
 const ok = (name, fn) => { fn(); n++; console.log('  ✓', name); };
 

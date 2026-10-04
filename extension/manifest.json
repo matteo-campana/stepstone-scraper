@@ -1,21 +1,26 @@
 {
   "manifest_version": 3,
-  "name": "StepStone Scraper & Matcher",
-  "version": "1.0.0",
-  "description": "Estrae gli annunci dalle pagine di ricerca StepStone e calcola l'affinità con il tuo profilo.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "name": "Job Scraper & Matcher (StepStone · TotalJobs)",
+  "version": "1.1.0",
+  "description": "Estrae gli annunci dalle pagine di ricerca StepStone e TotalJobs e calcola l'affinità con il tuo profilo.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
   "host_permissions": [
     "https://www.stepstone.de/*",
     "https://www.stepstone.at/*",
     "https://www.stepstone.be/*",
     "https://www.stepstone.nl/*",
-    "https://www.stepstone.fr/*"
+    "https://www.stepstone.fr/*",
+    "https://www.totaljobs.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "StepStone Scraper & Matcher",
+    "default_title": "Job Scraper & Matcher",
     "default_popup": "popup.html"
   },
   "content_scripts": [
@@ -25,10 +30,19 @@
         "https://www.stepstone.at/*",
         "https://www.stepstone.be/*",
         "https://www.stepstone.nl/*",
-        "https://www.stepstone.fr/*"
+        "https://www.stepstone.fr/*",
+        "https://www.totaljobs.com/*"
       ],
-      "js": ["selectors.js", "match.js", "companies.js", "content.js"],
-      "css": ["content.css"],
+      "js": [
+        "selectors.js",
+        "sites.js",
+        "match.js",
+        "companies.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ]

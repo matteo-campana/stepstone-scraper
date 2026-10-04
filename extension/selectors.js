@@ -1,8 +1,11 @@
 /**
  * ============================================================
- *  SELETTORI CSS DI STEPSTONE  —  UNICO PUNTO DA AGGIORNARE
+ *  SELETTORI CSS DI BASE (StepStone, condivisi con gli altri siti)
  * ============================================================
- * Se StepStone cambia l'HTML e l'estrazione smette di funzionare:
+ * Le differenze di un singolo sito (es. TotalJobs) stanno in sites.js, che
+ * sovrascrive solo i campi diversi.
+ *
+ * Se un sito cambia l'HTML e l'estrazione smette di funzionare:
  *   1. Apri una pagina di ricerca, DevTools (F12) → ispeziona una card.
  *   2. Cerca gli attributi `data-at="..."` (sono stabili, a differenza
  *      delle classi `res-xxxx` che sono hash generati da Emotion).
@@ -12,7 +15,8 @@
  * Ogni campo è un array: i selettori vengono provati in ordine e vince
  * il primo che trova un elemento (fallback automatico).
  * Riferimento: pagine salvate stepston-result-page.html e
- * stepstone-job-detail-page.html.
+ * stepstone-job-detail-page.html (StepStone), totaljobs-result-page.html e
+ * totaljobs-job-detail-page.html (TotalJobs).
  */
 const SS_SELECTORS = {
   // ---------- Pagina RISULTATI ----------
@@ -33,7 +37,7 @@ const SS_SELECTORS = {
     topLabel: ['[data-at="job-item-top-label"]'],
     // Lo stipendio NON ha un data-at nella card: si cerca uno <span> foglia
     // che contiene "€" (vedi extractCardSalary in content.js). Selettore
-    // opzionale se StepStone aggiungesse un attributo dedicato:
+    // opzionale se StepStone aggiungesse un attributo dedicato (TotalJobs ce l'ha: vedi sites.js):
     salary: ['[data-at="job-item-salary"]'],
     totalCount: ['[data-at="search-jobs-count"]'],
     pagination: ['nav[aria-label="pagination"]'],

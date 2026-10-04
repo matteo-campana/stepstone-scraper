@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>StepStone Scraper &amp; Matcher</title>
+  <title>Job Scraper &amp; Matcher</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -28,7 +28,7 @@
     <div class="appbar-title">
       <span class="logo"><svg class="ic"><use href="#i-work"/></svg></span>
       <div>
-        <h1>StepStone Scraper</h1>
+        <h1>Job Scraper <span id="siteChip" class="site-chip" hidden></span></h1>
         <p>Estrai · confronta · esporta</p>
       </div>
     </div>
@@ -48,7 +48,7 @@
         <input type="number" id="concurrency" min="1" max="10" value="5" placeholder=" ">
         <label for="concurrency">Richieste in parallelo</label>
       </div>
-      <p class="hint">Legge <b>tutte</b> le pagine della ricerca. Più richieste = più veloce, ma StepStone può rallentare o bloccare temporaneamente.</p>
+      <p class="hint">Legge <b>tutte</b> le pagine della ricerca. Più richieste = più veloce, ma <span data-site-name>il sito</span> può rallentare o bloccare temporaneamente.</p>
 
       <label class="switch-row">
         <span class="sw-text"><b>Leggi anche i dettagli</b><small>Più lento: contratto, requisiti</small></span>
@@ -59,7 +59,7 @@
         <input type="checkbox" id="companyDetails" class="switch" checked>
       </label>
       <label class="switch-row">
-        <span class="sw-text"><b>Evidenzia nella pagina</b><small>Badge di affinità sulle card StepStone</small></span>
+        <span class="sw-text"><b>Evidenzia nella pagina</b><small>Badge di affinità sulle card di <span data-site-name>il sito</span></small></span>
         <input type="checkbox" id="highlight" class="switch" checked>
       </label>
 
@@ -89,7 +89,8 @@
         <button id="btnHighlight" class="btn tonal"><svg class="ic"><use href="#i-eye"/></svg>Evidenzia</button>
         <button id="btnClear" class="btn text"><svg class="ic"><use href="#i-close"/></svg>Rimuovi</button>
         <span class="spacer"></span>
-        <button id="btnClearCache" class="btn text danger" title="Elimina risultati e stato salvati (il profilo e le opzioni restano)"><svg class="ic"><use href="#i-delete"/></svg>Pulisci cache <span id="cacheSize"></span></button>
+        <button id="btnClearCache" class="btn text danger" title="Elimina risultati e stato salvati del sito mostrato (il profilo e le opzioni restano)"><svg class="ic"><use href="#i-delete"/></svg>Pulisci cache<span id="cacheScope"></span> <span id="cacheSize"></span></button>
+        <button id="btnClearCacheAll" class="btn text danger" title="Elimina risultati e stato salvati di TUTTI i siti (il profilo e le opzioni restano)"><svg class="ic"><use href="#i-delete"/></svg>Tutto <span id="cacheSizeAll"></span></button>
       </div>
 
       <div class="segmented" role="tablist">
@@ -136,13 +137,15 @@
         </div>
         <div class="field">
           <input type="number" id="salaryMin" min="0" step="1000" placeholder=" ">
-          <label for="salaryMin">Stipendio min (€/anno)</label>
+          <label for="salaryMin">Stipendio min (annuo)</label>
         </div>
         <div class="field">
           <input type="number" id="salaryMax" min="0" step="1000" placeholder=" ">
-          <label for="salaryMax">Stipendio max (€/anno)</label>
+          <label for="salaryMax">Stipendio max (annuo)</label>
         </div>
       </div>
+
+      <p class="hint">Nessuna conversione di valuta: con annunci in £ inserisci l'importo in £. Le tariffe giornaliere sono annualizzate (× 220 giorni).</p>
 
       <div class="field">
         <input type="text" id="locations" placeholder=" ">
@@ -162,6 +165,8 @@
     </form>
   </section>
 
+  <script src="selectors.js"></script>
+  <script src="sites.js"></script>
   <script src="match.js"></script>
   <script src="companies.js"></script>
   <script src="xlsx.js"></script>
