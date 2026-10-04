@@ -127,16 +127,21 @@
       const info = (list.find((j) => j.companyInfo) || {}).companyInfo || {};
       const industries = info.industries || [];
       const scores = list.map((j) => j.match && j.match.score).filter((s) => s != null);
-      const firstLoc = String((list.find((j) => j.location) || {}).location || '').split(',')[0].trim();
+      const fullLoc = String((list.find((j) => j.location) || {}).location || '');
+      const firstLoc = fullLoc.split(',')[0].trim();
+      const hostName = host || (first.url && safeHost(first.url));
+      const site = Sites && Sites.forHost(hostName);
 
       rows.push({
         name: first.company,
         url: first.companyUrl || info.url || '',
-        linkedin: linkedinSearchUrl(first.company),
+        // su LinkedIn il link azienda è già il profilo LinkedIn; altrove si genera la ricerca per nome
+        linkedin: (site && site.id === 'linkedin' && (first.companyUrl || info.url)) || linkedinSearchUrl(first.company),
         // solo i settori dichiarati dall'azienda: quello dell'annuncio (ripiego) è troppo generico per classificare
         business: classifyBusiness(first.company, info.industriesFromCompany ? industries : []),
         businessDesc: industries.join(', '),
-        country: countryName(info.country, host || (first.url && safeHost(first.url))),
+        // senza paese dall'azienda: dall'ultima parte del luogo se il sito lo permette (LinkedIn: "Roma, Lazio, Italia")
+        country: (!info.country && site && site.countryFromLocation && site.countryFromLocation(fullLoc)) || countryName(info.country, hostName),
         city: info.city || firstLoc,
         jobs: list.length,
         maxScore: scores.length ? Math.max(...scores) : null,

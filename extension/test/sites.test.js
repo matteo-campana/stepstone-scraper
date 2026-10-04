@@ -17,12 +17,14 @@ function test(name, fn) {
   await test('forHost: riconosce tutti gli host supportati', () => {
     for (const h of ['de', 'at', 'be', 'nl', 'fr']) assert.equal(Sites.forHost('www.stepstone.' + h).id, 'stepstone');
     assert.equal(Sites.forHost('www.totaljobs.com').id, 'totaljobs');
+    assert.equal(Sites.forHost('www.linkedin.com').id, 'linkedin');
+    assert.equal(Sites.forUrl('https://www.linkedin.com/jobs/search/?keywords=Azure').id, 'linkedin');
     assert.equal(Sites.forUrl('https://www.totaljobs.com/jobs/x?page=2').id, 'totaljobs');
   });
 
   await test('forHost: scarta host non supportati o ingannevoli', () => {
     for (const h of ['www.stepstone.ch', 'stepstone.de', 'uk.totaljobs.com', 'totaljobs.com',
-      'www.totaljobs.com.evil.example', 'www.stepstone.de.evil.example', '', undefined, null]) {
+      'www.totaljobs.com.evil.example', 'www.stepstone.de.evil.example', 'linkedin.com', 'it.linkedin.com', 'www.linkedin.com.evil.example', '', undefined, null]) {
       assert.equal(Sites.forHost(h), null, String(h));
     }
     assert.equal(Sites.forUrl('not a url'), null);
@@ -51,6 +53,28 @@ function test(name, fn) {
     assert.equal(ss.companyIdFromUrl('https://www.totaljobs.com/jobs/x?cmpId=1'), '');
   });
 
+  await test('LinkedIn: ID annuncio e azienda dagli URL, ganci del sito', () => {
+    const li = Sites.byId('linkedin');
+    assert.equal(li.jobIdFromUrl('https://www.linkedin.com/jobs/view/4446202363/?eBP=NON_CHARGEABLE_CHANNEL&trk=x'), '4446202363');
+    assert.equal(li.jobIdFromUrl('/jobs/view/senior-dev-at-acme-4446202363'), '4446202363');
+    assert.equal(li.jobIdFromUrl('https://www.linkedin.com/jobs/search/?currentJobId=4475063527&geoId=1'), '4475063527');
+    assert.equal(li.jobIdFromUrl('https://www.totaljobs.com/job/x/y-job108060738'), '');
+    assert.equal(li.companyIdFromUrl('https://www.linkedin.com/company/bip-global/life/'), 'bip-global');
+    assert.equal(li.paging, 'dom');
+    assert.equal(li.maxConcurrency, 2);
+    assert.ok(li.pause[0] >= 1000 && li.maxPages <= 40 && li.note);
+    assert.equal(Sites.byId('stepstone').paging, undefined, 'StepStone non definisce ganci');
+    assert.equal(Sites.byId('totaljobs').paging, undefined);
+    assert.equal(li.cleanTitle('Cloud Architect Cloud Architect'), 'Cloud Architect');
+    assert.equal(li.cleanTitle('Dev Ops'), 'Dev Ops');
+    assert.deepEqual(li.splitLocation('Roma, Lazio, Italia (In sede)'), { location: 'Roma, Lazio, Italia', remote: 'In sede' });
+    assert.deepEqual(li.splitLocation('Milano (Ibrido)'), { location: 'Milano', remote: 'Ibrido' });
+    assert.deepEqual(li.splitLocation('Torino (zona nord)'), { location: 'Torino (zona nord)', remote: '' });
+    assert.equal(li.countryFromLocation('Roma, Lazio, Italia'), 'Italia');
+    assert.equal(li.countryFromLocation('Milano'), '');
+    assert.equal(li.canonicalUrl('/jobs/view/1/?trk=x', '1'), 'https://www.linkedin.com/jobs/view/1/');
+  });
+
   await test('paese per sito', () => {
     assert.equal(Sites.byId('stepstone').country('www.stepstone.at'), 'AT');
     assert.equal(Sites.byId('totaljobs').country('www.totaljobs.com'), 'GB');
@@ -60,7 +84,7 @@ function test(name, fn) {
     assert.equal(Sites.resultsKey('totaljobs'), 'results:totaljobs');
     assert.equal(Sites.stateKey(Sites.byId('stepstone')), 'scrapeState:stepstone');
     assert.deepEqual(Sites.allCacheKeys().sort(),
-      ['results:stepstone', 'results:totaljobs', 'scrapeState:stepstone', 'scrapeState:totaljobs']);
+      ['results:linkedin', 'results:stepstone', 'results:totaljobs', 'scrapeState:linkedin', 'scrapeState:stepstone', 'scrapeState:totaljobs']);
   });
 
   await test('manifest ⟷ registro: stessi host in host_permissions e content_scripts', () => {

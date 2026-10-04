@@ -27,6 +27,9 @@
   function useSite(site) { if (site && site !== SITE) { SITE = site; SEL = site.selectors; } return SITE; }
   /** Sito di un URL; senza URL valido resta quello corrente (utile nei test Node). */
   const siteFromUrl = (u) => (u && Sites.forUrl(u)) || SITE;
+  /** Dove cercare le card: il documento stesso o, per alcuni siti (LinkedIn), un iframe/shadow root. */
+  const rootOf = (doc) => (SITE.getRoot ? SITE.getRoot(doc) : doc);
+  const cleanTitle = (t) => (SITE.cleanTitle ? SITE.cleanTitle(t) : t);
 
   // ---------------------------------------------------------------
   // 1. UTILITY
@@ -118,10 +121,15 @@
    */
   function detectPageType(doc, baseUrl) {
     useSite(siteFromUrl(baseUrl || (doc && doc.baseURI)));
+    const root = rootOf(doc);
+    if (SITE.detectPageType) {
+      const t = SITE.detectPageType(doc, { url: baseUrl || (doc && doc.baseURI) || '', cards: () => queryAllFirst(root, SEL.results.card).length });
+      if (t) return t;
+    }
     const hasJobPosting = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))
       .some((s) => /"@type"\s*:\s*"JobPosting"/.test(s.textContent));
     if (queryFirst(doc, SEL.detail.title) || hasJobPosting) return 'detail';
-    if (queryAllFirst(doc, SEL.results.card).length) return 'results';
+    if (queryAllFirst(root, SEL.results.card).length) return 'results';
     return 'other';
   }
 
@@ -145,6 +153,8 @@
 
   /** ID annuncio: da id="job-item-123" oppure dall'URL (formato per sito). */
   function extractJobId(card, url) {
+    const own = SITE.jobIdFromCard ? SITE.jobIdFromCard(card) : '';
+    if (own) return own;
     const m1 = (card.getAttribute('id') || '').match(/(\d{5,})/);
     return m1 ? m1[1] : SITE.jobIdFromUrl(url);
   }
@@ -165,6 +175,11 @@
     let cards = queryAllFirst(container || doc, SEL.results.card);
     // scarta le card dentro blocchi di raccomandazioni
     cards = cards.filter((c) => !SEL.results.excludeAncestor.some((s) => { try { return c.closest(s); } catch (e) { return false; } }));
+    if (SITE.isPlaceholder) {
+      const total = cards.length;
+      cards = cards.filter((c) => !SITE.isPlaceholder(c));
+      if (cards.length < total) warnings.push(`${total - cards.length} card non ancora caricate (segnaposto) ignorate.`);
+    }
     if (!cards.length) {
       warnings.push(`Nessuna card trovata (results.card): ${SITE.label} potrebbe aver cambiato l'HTML.`);
       return [];
@@ -185,7 +200,7 @@
 
       const job = {
         id: extractJobId(card, url),
-        title: titleEl ? visibleText(titleEl) : '',
+        title: titleEl ? cleanTitle(visibleText(titleEl)) : '',
         company: textOf(card, SEL.results.company),
         companyUrl,
         companyId: companyIdFromUrl(companyUrl),
@@ -201,6 +216,8 @@
         contractType: '', workType: '', description: '', requirements: ''
       };
       job.currency = job.salary ? Match.detectCurrency(job.salary, SITE.currency) : '';
+      if (SITE.splitLocation) { const sl = SITE.splitLocation(job.location); job.location = sl.location; job.remote = job.remote || sl.remote; }
+      if (SITE.canonicalUrl && job.id) job.url = SITE.canonicalUrl(job.url, job.id);
       if (!job.title) miss('title (results.title)');
       if (!job.company) miss('company (results.company)');
       if (!job.location) miss('location (results.location)');
@@ -364,6 +381,13 @@
     useSite(siteFromUrl(baseUrl || doc.baseURI));
     warnings = warnings || [];
     baseUrl = baseUrl || doc.baseURI || SITE.baseUrl;
+    if (SITE.parseDetail) {
+      const sd = SITE.parseDetail(doc, baseUrl);
+      sd.description = (sd.description || '').replace(/[….]*\s*(altro|more|see more)$/i, '').trim();
+      sd.currency = sd.currency || (sd.salary ? Match.detectCurrency(sd.salary, SITE.currency) : '');
+      if (!sd.title && !sd.description) warnings.push('Dettaglio vuoto: controllare il parser del dettaglio in sites.js.');
+      return sd;
+    }
     const jp = findJobPosting(doc);
     const d = {};
 
@@ -473,8 +497,10 @@
     const warnings = [];
     const href = location.href;
     useSite(siteFromUrl(href));
+    opts.concurrency = Math.min(opts.concurrency, SITE.maxConcurrency || 10);
 
     const { profile = {} } = await chrome.storage.local.get('profile');
+    if (SITE.paging === 'dom') return scrapeByDriving(opts, warnings, href, profile);
     const pg = getPagination(document, href);
 
     // --- pagina corrente: DOM live
@@ -529,14 +555,20 @@
       }
     }
 
+    return finishScrape({ byPage, failedPages, totalResults: pg.totalResults, opts, warnings, href, profile });
+  }
+
+  /** Fase finale comune: dedup, dettagli e dati aziende opzionali, matching, salvataggio. */
+  async function finishScrape(ctx) {
+    const { byPage, failedPages, totalResults, opts, warnings, href, profile } = ctx;
     // unione in ordine di pagina; dedup per id
     const byId = new Map();
     [...byPage.keys()].sort((a, b) => a - b).forEach((p) => {
       byPage.get(p).forEach((j) => { const k = j.id || j.url; if (k && !byId.has(k)) byId.set(k, j); });
     });
     const readPages = [...byPage.keys()];
-    const lastPage = Math.max(...readPages);
-    const firstPage = Math.min(...readPages);
+    const lastPage = readPages.length ? Math.max(...readPages) : 0;
+    const firstPage = readPages.length ? Math.min(...readPages) : 0;
 
     let jobs = Array.from(byId.values());
 
@@ -560,7 +592,7 @@
           warnings.push(`Dettaglio ${job.id}: ${e.message}`);
         }
         await setState({ status: 'running', text: `Dettagli ${++done}/${jobs.length}…`, done, total: jobs.length });
-      }, opts.concurrency);
+      }, opts.concurrency, opts._pause || SITE.pause);
     }
 
     // --- dati aziende (settore, sede, paese): UN solo dettaglio per azienda non ancora coperta
@@ -577,7 +609,7 @@
           warnings.push(`Azienda ${group[0].company}: ${e.message}`);
         }
         await setState({ status: 'running', text: `Aziende ${++done}/${todo.length}…`, done, total: todo.length });
-      }, opts.concurrency);
+      }, opts.concurrency, opts._pause || SITE.pause);
     }
 
     // --- matching con il profilo
@@ -591,8 +623,8 @@
         pageUrl: href,
         siteId: SITE.id,
         siteLabel: SITE.label,
-        searchTitle: visibleText(document.querySelector('h1')),
-        totalResults: pg.totalResults,
+        searchTitle: visibleText(document.querySelector('h1')) || document.title,
+        totalResults: totalResults,
         pagesScraped: [firstPage, lastPage],
         pagesFailed: failedPages.sort((x, y) => x - y),
         scrapedAt: new Date().toISOString(),
@@ -607,29 +639,148 @@
   }
 
   // ---------------------------------------------------------------
+  // 4b. LETTURA GUIDATA (siti con paging 'dom', es. LinkedIn): niente fetch delle altre pagine,
+  //     si scorre la lista, si leggono le card e si clicca "Avanti" come farebbe l'utente.
+  // ---------------------------------------------------------------
+
+  /** Pulsante "Avanti" attivo, o null. */
+  function nextButton(root) {
+    const b = queryFirst(root, SEL.results.nextButton || []);
+    return b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' ? b : null;
+  }
+
+  /** "Pagina 1 di 13" nella paginazione del sito → { current, total } (null se assente). */
+  function readPageInfo(root) {
+    const el = queryFirst(root, SEL.results.pagination || []);
+    const m = el && visibleText(el).match(/(?:Pagina|Page)\s+(\d+)\s+(?:di|of)\s+(\d+)/i);
+    return m ? { current: parseInt(m[1], 10), total: parseInt(m[2], 10) } : null;
+  }
+
+  const firstCardId = (root) => {
+    const c = queryAllFirst(root, SEL.results.card)[0];
+    return c ? extractJobId(c, '') : '';
+  };
+
+  /** Attende che fn() ritorni un valore vero; null su timeout o annullamento. */
+  async function waitFor(fn, timeout, step = 200) {
+    const t0 = Date.now();
+    for (;;) {
+      const v = fn();
+      if (v) return v;
+      if (state.cancel || Date.now() - t0 > timeout) return null;
+      await sleep(step);
+    }
+  }
+
+  /**
+   * Le card si riempiono solo quando sono visibili (fuori schermo sono segnaposto vuoti): si scorre la lista
+   * finché sono tutte piene; se il numero di card piene non cresce più per 3 giri ci si ferma.
+   */
+  async function loadAllCards(root, timing) {
+    const sc = queryFirst(root, SEL.results.scrollContainer || []);
+    const real = (c) => !(SITE.isPlaceholder && SITE.isPlaceholder(c));
+    let prev = -1, stable = 0;
+    for (let k = 0; k < 25 && !state.cancel; k++) {
+      const cards = queryAllFirst(root, SEL.results.card);
+      const filled = cards.filter(real).length;
+      if (filled === cards.length) break;
+      stable = filled === prev ? stable + 1 : 0;
+      if (stable >= 3) break;
+      prev = filled;
+      if (sc) sc.scrollTop = Math.min(sc.scrollHeight, sc.scrollTop + Math.max(sc.clientHeight, 400));
+      await sleep(timing.scroll);
+    }
+    if (sc) sc.scrollTop = 0;
+  }
+
+  async function scrapeByDriving(opts, warnings, href, profile) {
+    const byPage = new Map();
+    const failedPages = [];
+    const maxPages = SITE.maxPages || MAX_PAGES;
+    const timing = { scroll: 400, wait: 10000, ...(opts._timing || {}) }; // _timing/_pause: solo per i test
+    const pause = opts._pause || SITE.pause || [1500, 3500];
+    const rootNow = () => rootOf(document);
+
+    let root = rootNow();
+    const countEl = queryFirst(root, SEL.results.totalCount);
+    const totalResults = countEl ? parseInt(visibleText(countEl).replace(/\D/g, ''), 10) || null : null;
+    const info0 = readPageInfo(root);
+    let start = 0;
+    try { start = parseInt(new URL(href).searchParams.get('start'), 10) || 0; } catch (e) { /* noop */ }
+    let page = info0 ? info0.current : Math.floor(start / 25) + 1; // si parte dalla pagina aperta e si va solo avanti
+    const firstPage = page;
+    const declaredLast = info0 ? info0.total : (totalResults ? Math.ceil(totalResults / 25) : null);
+    const guessPages = declaredLast ? Math.min(declaredLast, firstPage + maxPages - 1) : null;
+
+    const progress = () => setState({ status: 'running', text: `Pagina ${page}${guessPages ? '/' + guessPages : ''}…`, done: page, total: guessPages || page + 1 });
+    await progress();
+
+    for (;;) {
+      await loadAllCards(root, timing);
+      const found = parseResultCards(root, href, warnings);
+      if (found.length) byPage.set(page, found);
+      else { failedPages.push(page); warnings.push(`Pagina ${page}: nessun annuncio (lista non caricata o HTML cambiato).`); }
+
+      if (state.cancel) break;
+      if (page - firstPage + 1 >= maxPages) { warnings.push(`Lette ${maxPages} pagine: mi fermo (limite di sicurezza per ${SITE.label}).`); break; }
+      const info = readPageInfo(root);
+      if (info && info.current >= info.total) break; // ultima pagina dichiarata dal sito
+      const btn = nextButton(root);
+      if (!btn) break; // ultima pagina
+      const before = firstCardId(root);
+      btn.click();
+      const changed = await waitFor(() => { root = rootNow(); const id = firstCardId(root); return id && id !== before; }, timing.wait);
+      if (!changed) {
+        if (!state.cancel) { failedPages.push(page + 1); warnings.push(`Pagina ${page + 1}: la lista non è cambiata dopo "Avanti" (timeout).`); }
+        break;
+      }
+      page++;
+      await progress();
+      await jitter(pause[0], pause[1]);
+    }
+    return finishScrape({ byPage, failedPages, totalResults, opts, warnings, href, profile });
+  }
+
+
+  // ---------------------------------------------------------------
   // 5. EVIDENZIAZIONE E MESSAGGISTICA
   // ---------------------------------------------------------------
+
+  /** Stesso CSS di content.css, per i documenti in cui l'estensione non inietta fogli di stile (iframe di LinkedIn). */
+  const BADGE_CSS = '.ss-match-badge{display:inline-block;margin:8px 16px 0;padding:3px 10px;border-radius:999px;font:600 12px/1.4 system-ui,sans-serif;color:#fff;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}' +
+    '.ss-match-badge.ss-high{background:#1e8e3e}.ss-match-badge.ss-mid{background:#fbbc04;color:#202124}.ss-match-badge.ss-low{background:#8a8f98}' +
+    '[data-ss-level="high"]{outline:2px solid #34a853!important;outline-offset:-2px}[data-ss-level="mid"]{outline:2px solid #fbbc04!important;outline-offset:-2px}';
+  function ensureStyles(d) {
+    if (!d || d === document || d.getElementById('ss-badge-style')) return;
+    const el = d.createElement('style');
+    el.id = 'ss-badge-style';
+    el.textContent = BADGE_CSS;
+    (d.head || d.documentElement).appendChild(el);
+  }
 
   /** Aggiunge un badge con il punteggio alle card visibili nella pagina corrente. */
   function highlightCards(jobs) {
     clearHighlight();
     for (const job of jobs) {
       if (!job.id || !job.match || job.match.score == null) continue;
-      const card = document.getElementById(SITE.cardIdPrefix + job.id);
+      const card = (SITE.findCard ? SITE.findCard(document, job.id) : document.getElementById(SITE.cardIdPrefix + job.id));
       if (!card) continue;
       const level = job.match.score >= 70 ? 'high' : job.match.score >= 40 ? 'mid' : 'low';
       const badge = document.createElement('div');
       badge.className = 'ss-match-badge ss-' + level;
       badge.textContent = `Affinità ${job.match.score}%` + (job.match.matchedSkills.length ? ` · ${job.match.matchedSkills.join(', ')}` : '');
       badge.title = job.match.missingSkills.length ? 'Skill mancanti: ' + job.match.missingSkills.join(', ') : 'Tutte le skill trovate';
+      ensureStyles(card.ownerDocument);
       card.setAttribute('data-ss-level', level);
       card.prepend(badge);
     }
   }
 
   function clearHighlight() {
-    document.querySelectorAll('.ss-match-badge').forEach((b) => b.remove());
-    document.querySelectorAll('[data-ss-level]').forEach((c) => c.removeAttribute('data-ss-level'));
+    for (const scope of new Set([document, rootOf(document)])) {
+      scope.querySelectorAll('.ss-match-badge').forEach((b) => b.remove());
+      scope.querySelectorAll('[data-ss-level]').forEach((c) => c.removeAttribute('data-ss-level'));
+    }
   }
 
   function init() {
@@ -675,7 +826,7 @@
 
   const api = {
     clean, visibleText, queryFirst, detectPageType, parseResultCards, getPagination, sanePageTotal, buildPageUrl,
-    pageSequence, runPool, useSite, activeSite: () => SITE, parseDetail, parseCompany, extractCompanyPassport, companyIdFromUrl, findJobPosting, extractCardSalary, isSupportedHost
+    pageSequence, runPool, nextButton, readPageInfo, useSite, activeSite: () => SITE, parseDetail, parseCompany, extractCompanyPassport, companyIdFromUrl, findJobPosting, extractCardSalary, isSupportedHost
   };
   root.SSContent = api;
   if (typeof module !== 'undefined') module.exports = api;

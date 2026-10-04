@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Job Scraper & Matcher (StepStone · TotalJobs)",
-  "version": "1.1.0",
-  "description": "Estrae gli annunci dalle pagine di ricerca StepStone e TotalJobs e calcola l'affinità con il tuo profilo.",
+  "name": "Job Scraper & Matcher (StepStone · TotalJobs · LinkedIn)",
+  "version": "1.2.0",
+  "description": "Estrae gli annunci dalle pagine di ricerca StepStone, TotalJobs e LinkedIn e calcola l'affinità con il tuo profilo.",
   "permissions": [
     "storage",
     "activeTab",
@@ -14,7 +14,8 @@
     "https://www.stepstone.be/*",
     "https://www.stepstone.nl/*",
     "https://www.stepstone.fr/*",
-    "https://www.totaljobs.com/*"
+    "https://www.totaljobs.com/*",
+    "https://www.linkedin.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -31,7 +32,8 @@
         "https://www.stepstone.be/*",
         "https://www.stepstone.nl/*",
         "https://www.stepstone.fr/*",
-        "https://www.totaljobs.com/*"
+        "https://www.totaljobs.com/*",
+        "https://www.linkedin.com/*"
       ],
       "js": [
         "selectors.js",

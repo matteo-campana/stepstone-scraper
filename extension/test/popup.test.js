@@ -300,5 +300,41 @@ const rows = (doc, id = 'table') => doc.querySelector(`#${id} tbody`).rows;
     assert.match(msg, /totaljobs\.com/);
   });
 
+  await test('LinkedIn: nota del sito, chip e limite di concorrenza (anche con opzioni salvate più alte)', async () => {
+    const init = {
+      ...BOTH(),
+      'results:linkedin': {
+        jobs: [job('4000011', 'Cloud Architect', 'Acme', { url: 'https://www.linkedin.com/jobs/view/4000011/' })],
+        companies: [],
+        meta: { pageUrl: 'https://www.linkedin.com/jobs/search/', siteId: 'linkedin', siteLabel: 'LinkedIn', pagesScraped: [1, 1], pagesFailed: [], warnings: [], totalResults: 1, scrapedAt: '2026-10-05T00:00:00.000Z' }
+      }
+    };
+    const li = await openPopup(init, { activeSite: 'linkedin' });
+    const d = li.doc;
+    assert.equal(d.getElementById('siteChip').textContent, 'LinkedIn');
+    assert.equal(d.getElementById('siteNote').hidden, false);
+    assert.match(d.getElementById('siteNote').textContent, /lettura guidata/);
+    assert.equal(d.getElementById('concurrency').max, '2');
+    assert.equal(d.getElementById('concurrency').value, '2', 'opzioni salvate con 7 → ridotte al massimo del sito');
+    d.getElementById('concurrency').value = '9';
+    d.getElementById('btnScrape').click();
+    await tick();
+    assert.equal(li.sent.find((m) => m.type === 'START_SCRAPE').options.concurrency, 2);
+    d.getElementById('btnJson').click();
+    assert.match(li.downloads[0], /^linkedin-/);
+
+    const ss = await openPopup(init, { activeSite: 'stepstone' });
+    assert.equal(ss.doc.getElementById('siteNote').hidden, true);
+    assert.equal(ss.doc.getElementById('concurrency').max, '10');
+    assert.equal(ss.doc.getElementById('concurrency').value, '7');
+  });
+
+  await test('errore NOT_RESULTS_PAGE: indica come aprire una ricerca su LinkedIn', async () => {
+    const { doc } = await openPopup(BOTH(), { activeSite: 'linkedin', replies: { START_SCRAPE: { ok: false, error: 'NOT_RESULTS_PAGE' } } });
+    doc.getElementById('btnScrape').click();
+    await tick();
+    assert.match(doc.getElementById('status').textContent, /LinkedIn apri Lavoro/);
+  });
+
   console.log(`\n${n} test del popup passati`);
 })().catch((e) => { console.error(e); process.exit(1); });

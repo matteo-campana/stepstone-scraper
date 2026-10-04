@@ -23,7 +23,9 @@ const readFixture = (name) => {
 /** Pagine di esempio per sito. */
 const FIXTURES = {
   stepstone: { result: 'stepston-result-page.html', detail: 'stepstone-job-detail-page.html' },
-  totaljobs: { result: 'totaljobs-result-page.html', detail: 'totaljobs-job-detail-page.html' }
+  totaljobs: { result: 'totaljobs-result-page.html', detail: 'totaljobs-job-detail-page.html' },
+  // LinkedIn: la lista sta in un iframe (non incluso nel salvataggio): 'resultFrame' e' opzionale, 'page' e' la ricerca senza lista
+  linkedin: { resultFrame: 'linkedin-result-frame.html', page: 'linkedin-page.html', detail: 'linkedin-job-detail-page.html' }
 };
 
 const skip = (what) => console.log('SALTATO: ' + what + ' non trovato/a (cercato in: ' + DIRS.join(', ') + '; impostare SCRAPER_FIXTURES).');

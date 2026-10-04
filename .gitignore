@@ -6,5 +6,8 @@ stepston-result-page.html
 stepstone-job-detail-page.html
 totaljobs-result-page.html
 totaljobs-job-detail-page.html
+linkedin-page.html
+linkedin-job-detail-page.html
+linkedin-result-frame.html
 *.saved.html
 example/**/*

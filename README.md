@@ -1,6 +1,6 @@
-# Job Scraper & Matcher (StepStone · TotalJobs)
+# Job Scraper & Matcher (StepStone · TotalJobs · LinkedIn)
 
-Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone o TotalJobs**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende** e permette di esportare tutto in **XLSX**, CSV e JSON.
+Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone, TotalJobs o LinkedIn**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende** e permette di esportare tutto in **XLSX**, CSV e JSON.
 
 Siti supportati:
 
@@ -8,6 +8,7 @@ Siti supportati:
 | --- | --- | --- | --- |
 | **StepStone** | `www.stepstone.de`, `.at`, `.be`, `.nl`, `.fr` | EUR | Profilo azienda `/cmp/…`, stipendi spesso stimati. |
 | **TotalJobs** | `www.totaljobs.com` | GBP | Stesso design system (`data-at`), stipendio in `job-item-salary-info`, spesso come tariffa giornaliera; ID azienda in `?cmpId=`. |
+| **LinkedIn** | `www.linkedin.com` | dal testo | Lettura **guidata** (scorre la lista e clicca «Avanti»), ritmo ridotto, max 40 pagine. Vedi la sezione LinkedIn qui sotto. |
 
 Il sito è riconosciuto dall'host della scheda attiva; i risultati sono salvati **per sito** (estrarre su TotalJobs non cancella quelli di StepStone) e il popup mostra il sito corrente in un'etichetta accanto al titolo.
 
@@ -25,6 +26,18 @@ extension/
 ├── content.css       Stile dei badge nella pagina
 └── test/             Test dei parser sulle pagine HTML salvate nel repo
 ```
+
+### LinkedIn: come funziona e cosa è verificato
+
+- **Dove**: apri *Lavoro* e fai una ricerca (`/jobs/search/` o `/jobs/search-results/`), attendi che compaia la lista e premi *Estrai annunci*. Su una pagina di singolo annuncio o sulla home l'estrazione è rifiutata.
+- **Lettura guidata**: LinkedIn non usa `?page=N` e carica le card solo quando sono visibili, quindi l'estensione non scarica le altre pagine ma **fa quello che faresti tu**: scorre la lista, legge le card, clicca «Avanti», attende che la lista cambi e ripete. Parte dalla pagina aperta e va solo avanti. **Tieni la scheda aperta sulla ricerca** e non cambiare pagina durante l'estrazione; *Ferma* interrompe mantenendo quanto già raccolto.
+- **Ritmo ridotto**: una pagina alla volta con pause di 1,5–3,5 s, al massimo 2 richieste in parallelo per dettagli e dati azienda, tetto di 40 pagine (LinkedIn mostra al massimo circa 1000 risultati).
+- **Dettagli e dati azienda**: come sugli altri siti si scarica `/jobs/view/<id>/` (descrizione, contratto, modalità; settore e dimensione dell'azienda; link al profilo LinkedIn dell'azienda, usato anche nella colonna *LinkedIn*). Il paese viene dall'ultima parte del luogo («Roma, Lazio, Italia» → *Italia*).
+- **Rischio account**: sei autenticato col tuo profilo e i termini di LinkedIn vietano l'estrazione automatica; l'account potrebbe essere limitato. Usalo con moderazione, su ricerche piccole, a tuo rischio.
+- **Stato della verifica**: dettaglio e lista dell'interfaccia `/jobs/search/` sono verificati su pagine salvate reali (`linkedin-job-detail-page.html`, `linkedin-result-frame.html`: titolo, azienda, luogo, modalità, data, ID, totale risultati, «Pagina N di M» e pulsante «Avanti»). La lista sta in un iframe (`interop-iframe`, stessa origine): l'estensione lo legge da sola. **Non verificata** la variante `/jobs/search-results/` (interfaccia diversa): se compare l'avviso *Nessuna card trovata*, aggiorna la voce `linkedin` in `extension/sites.js`.
+- **Card non ancora caricate**: LinkedIn disegna il contenuto di una card solo quando è visibile (fuori schermo è un segnaposto vuoto). L'estensione scorre la lista finché sono piene; se alcune restano vuote vengono ignorate con un avviso, non esportate come righe vuote.
+- **Pulsante «Avanti»**: si usa solo quello della paginazione («Visualizza pagina successiva»). Nel pannello di dettaglio esistono altri pulsanti con «Avanti» (es. le foto dell'azienda) che non vengono mai cliccati.
+- **Aggiornare le pagine di esempio**: sulla pagina di ricerca apri la console (F12) ed esegui `copy(document.querySelector('iframe[data-testid="interop-iframe"]').contentDocument.documentElement.outerHTML)`, poi incolla in `example/linkedin-result-frame.html`. `linkedin.test.js` lo usa per verificare le card reali.
 
 ---
 
@@ -152,13 +165,13 @@ Particolarità note, verificate sulle pagine di riferimento:
 ### Aggiungere un sito
 
 1. Salva una pagina di ricerca e una di dettaglio e verifica con DevTools quali selettori di base funzionano.
-2. Aggiungi una voce in `SITES` (`extension/sites.js`): `id`, `label`, `hostRe`, `matches`, `currency`, `country`, `companyIdFromUrl`, `jobIdFromUrl` e gli override di `selectors`.
+2. Aggiungi una voce in `SITES` (`extension/sites.js`): `id`, `label`, `hostRe`, `matches`, `currency`, `country`, `companyIdFromUrl`, `jobIdFromUrl` e gli override di `selectors`. Per i siti che non seguono il flusso standard (lista in un iframe, paginazione senza `?page=N`, dettaglio diverso) ci sono ganci opzionali documentati in testa al file: vedi la voce `linkedin`.
 3. Ripeti gli host in `manifest.json` (`host_permissions` e `content_scripts[0].matches`): `sites.test.js` verifica che coincidano.
 4. Aggiungi le pagine di esempio in `test/fixtures.js` e un test come `totaljobs.test.js`.
 
 ### Test dei parser
 
-I test verificano i selettori su pagine salvate (una di ricerca e una di dettaglio per sito, alcuni MB, **non incluse nel repository**). Nomi attesi: `stepston-result-page.html` e `stepstone-job-detail-page.html` (StepStone), `totaljobs-result-page.html` e `totaljobs-job-detail-page.html` (TotalJobs). Si cercano in `SCRAPER_FIXTURES` (o `STEPSTONE_FIXTURES`, per compatibilità), poi nella radice del repo e in `example/`; i blocchi di test senza le loro pagine vengono saltati.
+I test verificano i selettori su pagine salvate (una di ricerca e una di dettaglio per sito, alcuni MB, **non incluse nel repository**). Nomi attesi: `stepston-result-page.html` e `stepstone-job-detail-page.html` (StepStone), `totaljobs-result-page.html` e `totaljobs-job-detail-page.html` (TotalJobs), `linkedin-job-detail-page.html` e `linkedin-page.html` (LinkedIn; la lista è in un iframe, vedi sopra), opzionale `linkedin-result-frame.html`. Si cercano in `SCRAPER_FIXTURES` (o `STEPSTONE_FIXTURES`, per compatibilità), poi nella radice del repo e in `example/`; i blocchi di test senza le loro pagine vengono saltati.
 
 ```bash
 cd extension/test
@@ -166,7 +179,7 @@ npm install
 SCRAPER_FIXTURES=/percorso/alle/pagine npm test      # PowerShell: $env:SCRAPER_FIXTURES="C:\percorso"; npm test
 ```
 
-`npm test` esegue `sites.test.js` (registro dei siti, coerenza con il manifest, migrazione dello storage), `background.test.js` (service worker), `synthetic.test.js` (percorso StepStone su card sintetiche), `parse.test.js` (parser StepStone, aziende, XLSX), `totaljobs.test.js` (parser TotalJobs, stipendi e valuta), `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; una volta per sito con pagina di esempio; usa `fetch` simulato dentro jsdom) e `popup.test.js` (popup, risultati per sito, pulsanti Pulisci cache; senza pagine di esempio).
+`npm test` esegue `sites.test.js` (registro dei siti, coerenza con il manifest, migrazione dello storage), `background.test.js` (service worker), `synthetic.test.js` (percorso StepStone su card sintetiche), `parse.test.js` (parser StepStone, aziende, XLSX), `totaljobs.test.js` (parser TotalJobs, stipendi e valuta), `linkedin.test.js` (dettaglio LinkedIn su pagina salvata; lettura guidata, timeout, Ferma e tetto di pagine su una lista sintetica), `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; una volta per sito con pagina di esempio; usa `fetch` simulato dentro jsdom) e `popup.test.js` (popup, risultati per sito, pulsanti Pulisci cache; senza pagine di esempio).
 
 I test coprono anche lista aziende, classificazione Main Business e generazione XLSX (rilettura con `openpyxl`, se installato: `pip install openpyxl`).
 
@@ -176,7 +189,7 @@ Dopo aver aggiornato `selectors.js` o `sites.js`, salva una nuova pagina di esem
 
 - L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni.
 - Le pagine successive, i dettagli e le schede azienda vengono scaricati in parallelo (default 5 richieste contemporanee) con brevi pause casuali (≈ 0,15–0,4 s) e ritentativo su 429/503. Non alzare in modo aggressivo le richieste in parallelo: i siti possono limitare o bloccare traffico anomalo. Tetto di sicurezza: 200 pagine per ricerca.
-- Verifica che l'uso sia coerente con i **Termini di servizio di StepStone e TotalJobs**; lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
+- Verifica che l'uso sia coerente con i **Termini di servizio di StepStone, TotalJobs e LinkedIn** (quelli di LinkedIn vietano l'estrazione automatica: vedi sopra); lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
 - Non è prevista la lettura di pagine caricate solo a scorrimento (infinite scroll): StepStone usa paginazione classica (`?page=N`), gestita via URL.
 - Permessi richiesti: `storage` (profilo e risultati), `activeTab` + `scripting` (iniettare il content script in schede già aperte), accesso ai soli domini supportati elencati sopra.
 
@@ -197,7 +210,7 @@ In pratica: se modifichi l'estensione e la distribuisci, o la metti a disposizio
 attraverso una rete (clausola AGPL §13), devi rendere disponibile il codice sorgente della tua
 versione con la stessa licenza.
 
-StepStone e TotalJobs sono marchi dei rispettivi titolari; questo progetto è indipendente e non è affiliato né
-approvato da StepStone o TotalJobs.
+StepStone, TotalJobs e LinkedIn sono marchi dei rispettivi titolari; questo progetto è indipendente e non è affiliato né
+approvato da StepStone, TotalJobs o LinkedIn.
 
 Vuoi contribuire? Leggi [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -13,7 +13,7 @@
 
   const ERRORS = {
     WRONG_DOMAIN: 'La scheda attiva non è un sito supportato. Siti supportati: ' + SSSites.hostList().join('; ') + '.',
-    NOT_RESULTS_PAGE: 'Questa non è una pagina di risultati di ricerca. Apri una ricerca (es. /jobs/...) e riprova.',
+    NOT_RESULTS_PAGE: 'Questa non è una pagina di risultati di ricerca. Apri una ricerca (es. /jobs/...) e riprova. Su LinkedIn apri Lavoro → una ricerca e attendi che compaia la lista.',
     NO_TAB: 'Nessuna scheda attiva trovata.',
     ALREADY_RUNNING: 'Uno scraping è già in corso su questa scheda.',
     NO_RESPONSE: 'La pagina non risponde. Ricarica la scheda (F5) e riprova.'
@@ -109,7 +109,7 @@
   // ---------------------------------------------------------------
   function readOptions() {
     return {
-      concurrency: Math.min(10, Math.max(1, parseInt($('concurrency').value, 10) || 5)),
+      concurrency: Math.min(viewSite.maxConcurrency || 10, Math.max(1, parseInt($('concurrency').value, 10) || 5)),
       enrich: $('enrich').checked,
       companyDetails: $('companyDetails').checked,
       highlight: $('highlight').checked
@@ -389,6 +389,17 @@
     chip.classList.toggle('stale', !!stale);
     chip.hidden = false;
     $('cacheScope').textContent = ' · ' + site.label;
+    const note = $('siteNote');
+    note.textContent = site.note || '';
+    note.hidden = !site.note;
+    applyConcurrencyLimit();
+  }
+
+  /** Alcuni siti (LinkedIn) accettano poche richieste in parallelo: il campo non supera il loro massimo. */
+  function applyConcurrencyLimit() {
+    const max = viewSite.maxConcurrency || 10;
+    $('concurrency').max = max;
+    if (parseInt($('concurrency').value, 10) > max) $('concurrency').value = max;
   }
 
   (async function init() {
@@ -415,6 +426,7 @@
       $('companyDetails').checked = options.companyDetails !== false;
       $('highlight').checked = options.highlight !== false;
     }
+    applyConcurrencyLimit(); // dopo le opzioni salvate: il massimo del sito vince
     results = stored[SSSites.resultsKey(viewSite)] || null;
     render();
     applyState(stored[SSSites.stateKey(viewSite)]);
