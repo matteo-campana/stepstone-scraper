@@ -56,13 +56,16 @@ async function openPopup(initial, { confirmAnswer = true, activeSite = 'stepston
     }
   };
   w.confirm = () => confirmAnswer;
+  const opened = [];
+  w.chrome.tabs = { create: async (o) => opened.push(o) };
+  w.chrome.runtime.getURL = (p) => 'chrome-extension://abc/' + p;
   w.URL.createObjectURL = () => 'blob:test';
   w.URL.revokeObjectURL = () => {};
   w.HTMLAnchorElement.prototype.click = function () { if (this.download) downloads.push(this.download); };
 
   ['selectors.js', 'sites.js', 'match.js', 'companies.js', 'xlsx.js', 'popup.js'].forEach((f) => w.eval(read(f)));
   await tick();
-  return { w, doc: w.document, store, sent, downloads, set: (o) => w.chrome.storage.local.set(o) };
+  return { w, doc: w.document, store, sent, downloads, opened, set: (o) => w.chrome.storage.local.set(o) };
 }
 
 const PROFILE = { skills: 'azure, terraform', years: '5', position: 'Platform Engineer', salaryMin: '', salaryMax: '', locations: '', remote: false };
@@ -334,6 +337,13 @@ const rows = (doc, id = 'table') => doc.querySelector(`#${id} tbody`).rows;
     doc.getElementById('btnScrape').click();
     await tick();
     assert.match(doc.getElementById('status').textContent, /LinkedIn apri Lavoro/);
+  });
+
+  await test('#btnMap apre map.html in una nuova scheda', async () => {
+    const { doc, opened } = await openPopup(FULL());
+    doc.getElementById('btnMap').click();
+    await tick();
+    assert.deepEqual(opened.map((o) => o.url), ['chrome-extension://abc/map.html']);
   });
 
   console.log(`\n${n} test del popup passati`);

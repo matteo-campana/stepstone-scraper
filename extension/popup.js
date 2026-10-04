@@ -279,6 +279,9 @@
     download(`${filePrefix()}-${stamp()}.json`, 'application/json', JSON.stringify(results, null, 2));
   });
 
+  // Mappa: pagina separata che legge i risultati di tutti i siti (lo stato vuoto è gestito in map.html)
+  $('btnMap').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('map.html') }));
+
   // Colonne annunci per CSV/XLSX (le colonne aziende vengono da companies.js)
   const JOB_COLUMNS = [
     { key: 'score', label: 'Affinità %', number: true },

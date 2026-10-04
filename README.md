@@ -1,6 +1,6 @@
 # Job Scraper & Matcher (StepStone · TotalJobs · LinkedIn)
 
-Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone, TotalJobs o LinkedIn**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende** e permette di esportare tutto in **XLSX**, CSV e JSON.
+Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone, TotalJobs o LinkedIn**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende**, la mostra su una **mappa** e permette di esportare tutto in **XLSX**, CSV e JSON.
 
 Siti supportati:
 
@@ -24,6 +24,10 @@ extension/
 ├── background.js     Service worker: default, verifica tab/dominio, iniezione content script
 ├── popup.html/.css/.js   Interfaccia: profilo, avvio scraping, tabella, export
 ├── content.css       Stile dei badge nella pagina
+├── map.html/.css/.js     Pagina «Mappa aziende»: filtri, marker, scheda dell'azienda
+├── geo.js            Coordinate da tabella locale, alias delle città, unione delle aziende tra siti
+├── cities.json       Tabella città/paese → coordinate (nessuna geocodifica in rete)
+├── vendor/leaflet/   Leaflet 1.9.4 (BSD-2-Clause), incluso: MV3 non ammette script remoti
 └── test/             Test dei parser sulle pagine HTML salvate nel repo
 ```
 
@@ -89,6 +93,7 @@ Premi **Salva profilo**. Tutto viene salvato in `chrome.storage.local` (solo sul
   - **XLSX**: un unico file con due fogli, **Aziende** e **Annunci** (intestazione in grassetto, riga bloccata, filtro automatico, link cliccabili).
   - **CSV annunci** / **CSV aziende** (separatore `;` con BOM, si aprono correttamente in Excel italiano/tedesco).
   - **JSON**: tutti i dati (annunci, aziende, metadati).
+- **Mappa**: apre in una nuova scheda la mappa delle aziende di tutti i siti estratti (vedi [Mappa aziende](#4b-mappa-aziende)).
 - **Pulisci cache**: elimina gli annunci e le aziende estratti e lo stato salvato (accanto al pulsante è indicata la dimensione occupata) e rimuove i badge dalla pagina. Agisce sul **sito mostrato** (il nome è accanto al pulsante); **Tutto** svuota la cache di tutti i siti. **Profilo e opzioni non vengono toccati.** Chiede conferma ed è disattivato mentre uno scraping è in corso. Utile prima di una nuova ricerca, per liberare spazio o dopo un aggiornamento dell'estensione.
 
 ## 3. Come viene calcolato il punteggio
@@ -135,6 +140,15 @@ Le liste di parole chiave sono in cima a `companies.js` (`KEYWORDS`): per ridurr
 
 Senza l'opzione **Dati aziende** (o *Leggi anche i dettagli*) settore e sede non sono disponibili: **Main Business** resta vuoto per quasi tutte le righe, e la città viene presa dall'annuncio.
 
+## 4b. Mappa aziende
+
+Il pulsante **Mappa** nel popup apre `map.html` in una nuova scheda: le aziende di **tutti** i siti estratti compaiono come punti sulla città della sede. Passando sopra un punto vedi il riepilogo, cliccandolo la scheda con gli annunci e i link.
+
+- **Unione per nome**: la stessa azienda trovata su StepStone e LinkedIn è un solo punto, con entrambe le fonti e gli annunci sommati.
+- **Coordinate solo locali**: la città si cerca in `cities.json` (≈300 città tedesche, austriache, svizzere e italiane più i centroidi dei paesi). Se la città non c'è, il punto va al centro del paese e la scheda lo segnala come *posizione approssimata*; se nemmeno il paese è noto, l'azienda non viene disegnata e il numero compare come *N senza posizione*. Per aggiungere città, modifica `cities.json` (chiavi in minuscolo, senza accenti); gli alias sono in `geo.js`.
+- **Aggiornamento live**: una nuova estrazione in un'altra scheda aggiorna la mappa senza spostare la vista.
+- **Rete**: la mappa carica le tessere (sfondo grigio) da `server.arcgisonline.com`, con © OpenStreetMap ed Esri. Quella richiesta rivela al server l'area che guardi e il tuo indirizzo IP, ma **nessun dato estratto viene inviato**. Leaflet è incluso in `vendor/leaflet/` (BSD-2-Clause).
+
 ## 5. Gestione errori
 
 | Messaggio | Causa / soluzione |
@@ -179,7 +193,7 @@ npm install
 SCRAPER_FIXTURES=/percorso/alle/pagine npm test      # PowerShell: $env:SCRAPER_FIXTURES="C:\percorso"; npm test
 ```
 
-`npm test` esegue `sites.test.js` (registro dei siti, coerenza con il manifest, migrazione dello storage), `background.test.js` (service worker), `synthetic.test.js` (percorso StepStone su card sintetiche), `parse.test.js` (parser StepStone, aziende, XLSX), `totaljobs.test.js` (parser TotalJobs, stipendi e valuta), `linkedin.test.js` (dettaglio LinkedIn su pagina salvata; lettura guidata, timeout, Ferma e tetto di pagine su una lista sintetica), `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; una volta per sito con pagina di esempio; usa `fetch` simulato dentro jsdom) e `popup.test.js` (popup, risultati per sito, pulsanti Pulisci cache; senza pagine di esempio).
+`npm test` esegue `sites.test.js` (registro dei siti, coerenza con il manifest, migrazione dello storage), `background.test.js` (service worker), `synthetic.test.js` (percorso StepStone su card sintetiche), `parse.test.js` (parser StepStone, aziende, XLSX), `totaljobs.test.js` (parser TotalJobs, stipendi e valuta), `linkedin.test.js` (dettaglio LinkedIn su pagina salvata; lettura guidata, timeout, Ferma e tetto di pagine su una lista sintetica), `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; una volta per sito con pagina di esempio; usa `fetch` simulato dentro jsdom), `popup.test.js` (popup, risultati per sito, pulsanti Pulisci cache e Mappa; senza pagine di esempio) e `geo.test.js` (coordinate da `cities.json`, alias, unione delle aziende tra siti; senza jsdom né pagine di esempio). `map.js` non ha test automatici: va provato in Chrome.
 
 I test coprono anche lista aziende, classificazione Main Business e generazione XLSX (rilettura con `openpyxl`, se installato: `pip install openpyxl`).
 
@@ -187,7 +201,7 @@ Dopo aver aggiornato `selectors.js` o `sites.js`, salva una nuova pagina di esem
 
 ## 7. Limiti e uso responsabile
 
-- L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni.
+- L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni. Unica richiesta verso terzi: le tessere della pagina **Mappa**, scaricate da `server.arcgisonline.com` solo quando la apri (vedi [Mappa aziende](#4b-mappa-aziende)).
 - Le pagine successive, i dettagli e le schede azienda vengono scaricati in parallelo (default 5 richieste contemporanee) con brevi pause casuali (≈ 0,15–0,4 s) e ritentativo su 429/503. Non alzare in modo aggressivo le richieste in parallelo: i siti possono limitare o bloccare traffico anomalo. Tetto di sicurezza: 200 pagine per ricerca.
 - Verifica che l'uso sia coerente con i **Termini di servizio di StepStone, TotalJobs e LinkedIn** (quelli di LinkedIn vietano l'estrazione automatica: vedi sopra); lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
 - Non è prevista la lettura di pagine caricate solo a scorrimento (infinite scroll): StepStone usa paginazione classica (`?page=N`), gestita via URL.

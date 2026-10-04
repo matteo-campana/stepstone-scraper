@@ -52,7 +52,9 @@ la sua voce in [`extension/sites.js`](extension/sites.js) (guida nel README, sez
    cartella `extension/`) e provala su una ricerca reale.
 3. Scrivi il codice nello stile di quello circostante: JavaScript senza dipendenze o
    build, commenti in italiano, selettori solo in `selectors.js` e `sites.js`, un nuovo sito solo come voce di `sites.js` (e host nel manifest), parole chiave di
-   classificazione solo in `companies.js`, pesi del punteggio solo in `match.js`.
+   classificazione solo in `companies.js`, pesi del punteggio solo in `match.js`, coordinate solo in
+   `cities.json` e alias delle città solo in `geo.js`. Niente script remoti né JS/CSS inline
+   (Manifest V3): le librerie di terze parti vanno in `extension/vendor/` con la loro licenza.
 4. Aggiungi o aggiorna i test e fai girare l'intera suite prima di inviare la PR:
 
    ```bash
@@ -63,7 +65,8 @@ la sua voce in [`extension/sites.js`](extension/sites.js) (guida nel README, sez
 
    Per le nuove regole di estrazione, aggiungi un caso in `parse.test.js` (StepStone) o
    `totaljobs.test.js`; per un nuovo sito, un test come `totaljobs.test.js` e i suoi host in
-   `sites.test.js`; per la paginazione e le richieste parallele, in `paging.test.js`.
+   `sites.test.js`; per la paginazione e le richieste parallele, in `paging.test.js`; per coordinate, alias e
+   unione delle aziende tra siti, in `geo.test.js`.
 5. Controlla che `node --check` passi su tutti i file `.js` e che l'estensione si
    carichi in Chrome senza errori.
 6. Aggiorna il README se cambia il comportamento visibile all'utente.

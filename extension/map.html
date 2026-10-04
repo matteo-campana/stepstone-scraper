@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Mappa Aziende</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="map.css">
+</head>
+<body>
+  <div class="app">
+    <header class="bar">
+      <div class="title">
+        <h1>Mappa Aziende</h1>
+        <span class="count" id="count"></span>
+        <span class="count warn" id="noPos" hidden></span>
+      </div>
+      <div class="controls">
+        <select id="f-country" aria-label="Paese"><option value="">Tutti i paesi</option></select>
+        <select id="f-sector" aria-label="Settore"><option value="">Tutti i settori</option></select>
+        <select id="f-source" aria-label="Fonte"><option value="">Tutte le fonti</option></select>
+        <input id="f-search" type="search" placeholder="Cerca azienda…" aria-label="Cerca azienda">
+        <button class="btn ghost" id="reset">Reset</button>
+        <button class="btn primary" id="fit">Vista generale</button>
+      </div>
+    </header>
+
+    <div class="stage">
+      <div id="map" hidden></div>
+      <div id="empty" class="empty" hidden>
+        Nessuna azienda: esegui un'estrazione dal popup.
+      </div>
+      <div class="legend" id="legend" hidden>
+        <div class="hint">Passa sopra per i dettagli · clic per i link</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="selectors.js"></script>
+  <script src="sites.js"></script>
+  <script src="companies.js"></script>
+  <script src="geo.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="map.js"></script>
+</body>
+</html>
