@@ -163,7 +163,7 @@ Il pulsante **Mappa** nel popup apre `map.html` in una nuova scheda: le aziende 
 - **Aggiornamento live**: una nuova estrazione in un'altra scheda aggiorna la mappa senza spostare la vista.
 - **Rete**: la mappa carica le tessere (sfondo grigio) da `server.arcgisonline.com`, con © OpenStreetMap ed Esri. Quella richiesta rivela al server l'area che guardi e il tuo indirizzo IP, ma **nessun dato estratto viene inviato** (salvo gli indirizzi delle sedi, e solo con *Indirizzi esatti*). Leaflet è incluso in `vendor/leaflet/` (BSD-2-Clause).
 
-![Scheda di un'azienda sulla mappa: indirizzo della sede, settore, annunci e link](docs/screenshots/mappa-scheda.png)
+![Scheda di un'azienda sulla mappa (Roma): sede, settore, annunci e link](docs/screenshots/mappa-scheda.png)
 
 ### Indirizzi esatti
 

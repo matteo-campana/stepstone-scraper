@@ -209,21 +209,23 @@ const settle = (page, ms = 400) => page.waitForTimeout(ms);
     await page.context().close();
   }
 
-  // Mappa: panoramica e scheda di un'azienda
+  // Mappa: panoramica e scheda di un'azienda, entrambe centrate su Roma
+  const ROMA = [41.903, 12.496];
   {
     const store = resultsStore();
     const page = await openPage(browser, 'map.html', store, { width: 1280, height: 760 });
     await settle(page, 600);
     await drawBasemap(page);
+    await page.evaluate((ll) => window.__map.setView(ll, 5, { animate: false }), ROMA);
     await settle(page, 300);
     await shot(page, 'mappa.png');
 
-    // scheda di Nordlicht (Hamburg): clic sul marker
-    const pt = await page.evaluate(() => {
+    // scheda di Tevere Cloud (Roma): clic sul marker
+    const pt = await page.evaluate((ll) => {
       const m = window.__map;
-      m.setView([53.551, 9.994], 7, { animate: false });
-      return m.latLngToContainerPoint([53.551, 9.994]);
-    });
+      m.setView(ll, 7, { animate: false });
+      return m.latLngToContainerPoint(ll);
+    }, ROMA);
     await settle(page, 300);
     const mapBox = await page.locator('#map').boundingBox();
     await page.mouse.click(mapBox.x + pt.x, mapBox.y + pt.y);
