@@ -15,12 +15,16 @@
         <h1>Mappa Aziende</h1>
         <span class="count" id="count"></span>
         <span class="count warn" id="noPos" hidden></span>
+        <span class="count" id="geoStatus" hidden></span>
       </div>
       <div class="controls">
         <select id="f-country" aria-label="Paese"><option value="">Tutti i paesi</option></select>
         <select id="f-sector" aria-label="Settore"><option value="">Tutti i settori</option></select>
         <select id="f-source" aria-label="Fonte"><option value="">Tutte le fonti</option></select>
         <input id="f-search" type="search" placeholder="Cerca azienda…" aria-label="Cerca azienda">
+        <label class="toggle" title="Cerca l'indirizzo della sede su OpenStreetMap (Nominatim): invia in rete solo gli indirizzi delle aziende">
+          <input type="checkbox" id="f-exact"> Indirizzi esatti
+        </label>
         <button class="btn ghost" id="reset">Reset</button>
         <button class="btn primary" id="fit">Vista generale</button>
       </div>

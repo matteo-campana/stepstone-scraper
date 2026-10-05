@@ -2,8 +2,10 @@
  * geo.js — dalle aziende ai punti sulla mappa.
  * Puro (nessun accesso a DOM/chrome): condiviso da map.js e test.
  *
- * Le coordinate vengono SOLO dalla tabella locale cities.json ({ cities, countries }):
- * nessuna geocodifica in rete. Città sconosciuta → centro del Paese (approx), altrimenti niente punto.
+ * Le coordinate vengono dalla tabella locale cities.json ({ cities, countries }): città sconosciuta →
+ * centro del Paese (approx), altrimenti niente punto. Solo se l'utente attiva «Indirizzi esatti» nella
+ * mappa, l'indirizzo della sede viene geocodificato in rete (Nominatim/OpenStreetMap, vedi map.js):
+ * qui ci sono solo le parti pure (query, URL, lettura della risposta, controllo di plausibilità).
  */
 (function (root) {
   const Companies = root.SSCompanies || (typeof require !== 'undefined' ? require('./companies.js') : null);
@@ -62,6 +64,58 @@
     return valid(p) ? { lat: p[0], lon: p[1], approx: true } : null;
   }
 
+  // ================================================================
+  //  GEOCODIFICA DELL'INDIRIZZO (opzionale, attivata dalla mappa)
+  // ================================================================
+  const GEOCODER_URL = 'https://nominatim.openstreetmap.org/search';
+  /** Oltre questa distanza dalla città nota il risultato è considerato un omonimo e scartato. */
+  const MAX_KM_FROM_CITY = 60;
+
+  /**
+   * Testo da geocodificare: l'indirizzo della sede più il Paese se non c'è già.
+   * Vuoto se manca l'indirizzo o se è solo la città (lì la tabella locale basta).
+   */
+  function addressQuery(c) {
+    const addr = String((c && c.address) || '').replace(/\s+/g, ' ').trim();
+    if (!addr || normKey(addr) === normKey(c.city) || normKey(addr) === normKey(c.country)) return '';
+    const country = String(c.country || '').trim();
+    return country && !normKey(addr).includes(normKey(country)) ? addr + ', ' + country : addr;
+  }
+
+  /** URL di ricerca Nominatim: un solo risultato, nomi in italiano. */
+  function geocodeUrl(query) {
+    return GEOCODER_URL + '?format=jsonv2&limit=1&accept-language=it&q=' + encodeURIComponent(query);
+  }
+
+  /** Primo risultato di Nominatim → [lat, lon], oppure null. */
+  function parseGeocode(json) {
+    const r = Array.isArray(json) ? json[0] : null;
+    const p = r ? [parseFloat(r.lat), parseFloat(r.lon)] : null;
+    return valid(p) && Math.abs(p[0]) <= 90 && Math.abs(p[1]) <= 180 ? p : null;
+  }
+
+  /** Distanza in km (haversine). */
+  function distanceKm(a, b) {
+    const rad = Math.PI / 180;
+    const dLat = (b[0] - a[0]) * rad, dLon = (b[1] - a[1]) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLon / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(h));
+  }
+
+  /**
+   * Posizione di un'azienda: indirizzo geocodificato se è in `cache` (query → [lat, lon] | null)
+   * e plausibile rispetto alla città nota, altrimenti locate().
+   * @returns {{lat: number, lon: number, approx: boolean, exact?: boolean}|null}
+   */
+  function resolve(c, table, cache) {
+    const byCity = locate(c.city, c.country, table);
+    const q = cache ? addressQuery(c) : '';
+    const p = q ? cache[q] : null;
+    if (!valid(p)) return byCity;
+    if (byCity && !byCity.approx && distanceKm(p, [byCity.lat, byCity.lon]) > MAX_KM_FROM_CITY) return byCity;
+    return { lat: p[0], lon: p[1], approx: false, exact: true };
+  }
+
   /** Aziende nello stesso punto: la k-esima (da 1) si sposta su una spirale ad angolo aureo, così restano cliccabili. */
   function spiral(lat, lon, k) {
     if (k <= 1) return [lat, lon];
@@ -113,7 +167,7 @@
         cur.jobs += row.jobs;
         cur.jobList.push(...list);
         if (row.maxScore != null) cur.maxScore = cur.maxScore == null ? row.maxScore : Math.max(cur.maxScore, row.maxScore);
-        for (const f of ['url', 'business', 'businessDesc', 'country', 'city', 'employees']) if (!cur[f]) cur[f] = row[f];
+        for (const f of ['url', 'business', 'businessDesc', 'country', 'city', 'address', 'employees']) if (!cur[f]) cur[f] = row[f];
         // il profilo vero (da LinkedIn) vince sulla ricerca per nome generata
         if (isProfile(row.linkedin) && !isProfile(cur.linkedin)) cur.linkedin = row.linkedin;
       }
@@ -121,7 +175,10 @@
     return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
   }
 
-  const api = { ALIASES, normKey, candidates, locate, spiral, place, mergeSites };
+  const api = {
+    ALIASES, GEOCODER_URL, MAX_KM_FROM_CITY, normKey, candidates, locate, spiral, place, mergeSites,
+    addressQuery, geocodeUrl, parseGeocode, distanceKm, resolve
+  };
   root.SSGeo = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

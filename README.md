@@ -10,6 +10,16 @@ Siti supportati:
 | **TotalJobs** | `www.totaljobs.com` | GBP | Stesso design system (`data-at`), stipendio in `job-item-salary-info`, spesso come tariffa giornaliera; ID azienda in `?cmpId=`. |
 | **LinkedIn** | `www.linkedin.com` | dal testo | Lettura **guidata** (scorre la lista e clicca «Avanti»), ritmo ridotto, max 40 pagine. Vedi la sezione LinkedIn qui sotto. |
 
+<p align="center">
+  <img src="docs/screenshots/popup-annunci.png" alt="Popup, scheda Annunci: opzioni di estrazione, export e tabella ordinata per affinità" width="260">
+  <img src="docs/screenshots/popup-aziende.png" alt="Popup, vista Aziende: classificazione Main Business, settore, sede e link" width="260">
+  <img src="docs/screenshots/popup-profilo.png" alt="Popup, scheda Profilo: competenze, esperienza, stipendio, località e remoto" width="260">
+</p>
+
+![Mappa aziende: un punto per azienda sulla città della sede, colorato per fonte](docs/screenshots/mappa.png)
+
+<sub>Screenshot generati con dati dimostrativi (aziende inventate) e uno sfondo semplificato al posto delle tessere Esri: vedi [Aggiornare gli screenshot](#aggiornare-gli-screenshot).</sub>
+
 Il sito è riconosciuto dall'host della scheda attiva; i risultati sono salvati **per sito** (estrarre su TotalJobs non cancella quelli di StepStone) e il popup mostra il sito corrente in un'etichetta accanto al titolo.
 
 ```txt
@@ -29,6 +39,9 @@ extension/
 ├── cities.json       Tabella città/paese → coordinate (nessuna geocodifica in rete)
 ├── vendor/leaflet/   Leaflet 1.9.4 (BSD-2-Clause), incluso: MV3 non ammette script remoti
 └── test/             Test dei parser sulle pagine HTML salvate nel repo
+docs/
+├── screenshots/      Immagini usate in questo README
+└── tools/            Script Playwright che le rigenera (dati dimostrativi)
 ```
 
 ### LinkedIn: come funziona e cosa è verificato
@@ -146,8 +159,28 @@ Il pulsante **Mappa** nel popup apre `map.html` in una nuova scheda: le aziende 
 
 - **Unione per nome**: la stessa azienda trovata su StepStone e LinkedIn è un solo punto, con entrambe le fonti e gli annunci sommati.
 - **Coordinate solo locali**: la città si cerca in `cities.json` (≈300 città tedesche, austriache, svizzere e italiane più i centroidi dei paesi). Se la città non c'è, il punto va al centro del paese e la scheda lo segnala come *posizione approssimata*; se nemmeno il paese è noto, l'azienda non viene disegnata e il numero compare come *N senza posizione*. Per aggiungere città, modifica `cities.json` (chiavi in minuscolo, senza accenti); gli alias sono in `geo.js`.
+- **Indirizzi esatti** (casella nella barra, **spenta** di default): il punto va sull'**indirizzo della sede** invece che al centro della città. Vedi sotto.
 - **Aggiornamento live**: una nuova estrazione in un'altra scheda aggiorna la mappa senza spostare la vista.
-- **Rete**: la mappa carica le tessere (sfondo grigio) da `server.arcgisonline.com`, con © OpenStreetMap ed Esri. Quella richiesta rivela al server l'area che guardi e il tuo indirizzo IP, ma **nessun dato estratto viene inviato**. Leaflet è incluso in `vendor/leaflet/` (BSD-2-Clause).
+- **Rete**: la mappa carica le tessere (sfondo grigio) da `server.arcgisonline.com`, con © OpenStreetMap ed Esri. Quella richiesta rivela al server l'area che guardi e il tuo indirizzo IP, ma **nessun dato estratto viene inviato** (salvo gli indirizzi delle sedi, e solo con *Indirizzi esatti*). Leaflet è incluso in `vendor/leaflet/` (BSD-2-Clause).
+
+![Scheda di un'azienda sulla mappa (Roma): sede, settore, annunci e link](docs/screenshots/mappa-scheda.png)
+
+### Indirizzi esatti
+
+L'indirizzo della sede è già nei dati estratti, quindi la posizione precisa è possibile, ma serve una **geocodifica in rete** (nessuna tabella locale copre le vie). Per questo è un'opzione da attivare:
+
+| Sito | Indirizzo disponibile | Da dove |
+| --- | --- | --- |
+| **StepStone** | sì, con *Dati aziende* o *Leggi anche i dettagli* | `companyPassportData.address` nel dettaglio (es. *Am Sandtorkai 12, 20457 Hamburg*) |
+| **TotalJobs** | sì, con *Dati aziende* o *Leggi anche i dettagli* | `location.addressText` nello stato della pagina di dettaglio |
+| **LinkedIn** | no | la pagina dell'annuncio mostra solo la località: resta la città |
+
+- **Come funziona**: con la casella attiva, ogni indirizzo non ancora noto viene cercato su **Nominatim** (OpenStreetMap), **una richiesta al secondo** come chiede la sua [policy d'uso](https://operations.osmfoundation.org/policies/nominatim/). I punti si spostano man mano; il contatore *Indirizzi N/M…* mostra l'avanzamento.
+- **Cache**: i risultati (anche «non trovato») restano in `chrome.storage.local` (chiave `geocache`), quindi ogni indirizzo si cerca una volta sola. *Pulisci cache* nel popup non la tocca.
+- **Ripiego**: indirizzo assente, non trovato, servizio non raggiungibile o risultato a più di 60 km dalla città nota (un omonimo) → il punto resta sulla città, e la scheda lo indica come *Posizione della città*.
+- **Privacy**: a Nominatim arrivano solo l'indirizzo della sede (un dato pubblico dell'azienda) e il tuo IP; mai profilo, annunci o punteggi. A casella spenta non parte nessuna richiesta.
+
+La sede è quella **dell'azienda**, non necessariamente il luogo di lavoro dell'annuncio (che resta nella scheda, accanto a ogni annuncio).
 
 ## 5. Gestione errori
 
@@ -193,15 +226,27 @@ npm install
 SCRAPER_FIXTURES=/percorso/alle/pagine npm test      # PowerShell: $env:SCRAPER_FIXTURES="C:\percorso"; npm test
 ```
 
-`npm test` esegue `sites.test.js` (registro dei siti, coerenza con il manifest, migrazione dello storage), `background.test.js` (service worker), `synthetic.test.js` (percorso StepStone su card sintetiche), `parse.test.js` (parser StepStone, aziende, XLSX), `totaljobs.test.js` (parser TotalJobs, stipendi e valuta), `linkedin.test.js` (dettaglio LinkedIn su pagina salvata; lettura guidata, timeout, Ferma e tetto di pagine su una lista sintetica), `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; una volta per sito con pagina di esempio; usa `fetch` simulato dentro jsdom), `popup.test.js` (popup, risultati per sito, pulsanti Pulisci cache e Mappa; senza pagine di esempio) e `geo.test.js` (coordinate da `cities.json`, alias, unione delle aziende tra siti; senza jsdom né pagine di esempio). `map.js` non ha test automatici: va provato in Chrome.
+`npm test` esegue `sites.test.js` (registro dei siti, coerenza con il manifest, migrazione dello storage), `background.test.js` (service worker), `synthetic.test.js` (percorso StepStone su card sintetiche), `parse.test.js` (parser StepStone, aziende, XLSX), `totaljobs.test.js` (parser TotalJobs, stipendi e valuta), `linkedin.test.js` (dettaglio LinkedIn su pagina salvata; lettura guidata, timeout, Ferma e tetto di pagine su una lista sintetica), `paging.test.js` (lettura di tutte le pagine in parallelo, limite di concorrenza, ritentativi su 429, ordine dei risultati, errori parziali; una volta per sito con pagina di esempio; usa `fetch` simulato dentro jsdom), `popup.test.js` (popup, risultati per sito, pulsanti Pulisci cache e Mappa; senza pagine di esempio) e `geo.test.js` (coordinate da `cities.json`, alias, unione delle aziende tra siti, query e lettura della geocodifica degli indirizzi; senza jsdom né pagine di esempio). `map.js` non ha test automatici: va provato in Chrome.
 
 I test coprono anche lista aziende, classificazione Main Business e generazione XLSX (rilettura con `openpyxl`, se installato: `pip install openpyxl`).
 
 Dopo aver aggiornato `selectors.js` o `sites.js`, salva una nuova pagina di esempio e adatta i valori attesi in `parse.test.js` per verificare subito che l'estrazione funzioni.
 
+### Aggiornare gli screenshot
+
+Le immagini in `docs/screenshots/` si rigenerano con Playwright: lo script apre `popup.html` e `map.html` con `chrome.*` simulato e **dati dimostrativi** (aziende inventate), senza rete. Lo sfondo della mappa è disegnato in locale con i confini di [world-atlas](https://github.com/topojson/world-atlas) (Natural Earth) al posto delle tessere Esri.
+
+```bash
+cd docs/tools
+npm install
+npm run screenshots          # se Playwright non ha un browser suo: CHROMIUM_PATH=/percorso/chrome npm run screenshots
+```
+
+Dopo una modifica all'interfaccia rigenera le immagini e controllale prima del commit.
+
 ## 7. Limiti e uso responsabile
 
-- L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni. Unica richiesta verso terzi: le tessere della pagina **Mappa**, scaricate da `server.arcgisonline.com` solo quando la apri (vedi [Mappa aziende](#4b-mappa-aziende)).
+- L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni. Richieste verso terzi: le tessere della pagina **Mappa**, scaricate da `server.arcgisonline.com` solo quando la apri, e, solo se attivi *Indirizzi esatti*, la ricerca degli indirizzi delle sedi su Nominatim (vedi [Mappa aziende](#4b-mappa-aziende)).
 - Le pagine successive, i dettagli e le schede azienda vengono scaricati in parallelo (default 5 richieste contemporanee) con brevi pause casuali (≈ 0,15–0,4 s) e ritentativo su 429/503. Non alzare in modo aggressivo le richieste in parallelo: i siti possono limitare o bloccare traffico anomalo. Tetto di sicurezza: 200 pagine per ricerca.
 - Verifica che l'uso sia coerente con i **Termini di servizio di StepStone, TotalJobs e LinkedIn** (quelli di LinkedIn vietano l'estrazione automatica: vedi sopra); lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
 - Non è prevista la lettura di pagine caricate solo a scorrimento (infinite scroll): StepStone usa paginazione classica (`?page=N`), gestita via URL.

@@ -2,6 +2,8 @@
  * map.js — pagina "Mappa aziende": legge i risultati di tutti i siti da chrome.storage.local,
  * li unisce per azienda (geo.js), li mette sulla mappa Leaflet e applica i filtri.
  * Tooltip e scheda sono costruiti con nodi DOM (textContent): i dati vengono dalle pagine scrapate.
+ * Con «Indirizzi esatti» (opzionale, spento di default) gli indirizzi delle sedi vengono geocodificati
+ * con Nominatim, una richiesta al secondo, e i risultati restano in cache (chiave GEO_CACHE_KEY).
  */
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -9,6 +11,8 @@
   // colori dei token di map.css (--src-*), usati per i marker del canvas
   const SOURCE_COLOR = { stepstone: '#1a73e8', totaljobs: '#1e8e3e', linkedin: '#7627bb' };
   const INK = '#202124', WHITE = '#fff';
+  const GEO_CACHE_KEY = 'geocache', MAP_OPTIONS_KEY = 'mapOptions';
+  const GEOCODE_GAP_MS = 1100; // policy di Nominatim: al massimo 1 richiesta al secondo
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -31,6 +35,8 @@
   let companies = [];        // righe unite per azienda, con .geo
   let visible = [];          // righe filtrate e localizzate (sono sulla mappa)
   const f = { country: '', sector: '', source: '', search: '' };
+  let exact = false;         // «Indirizzi esatti» attivo
+  let geocache = {};         // query indirizzo → [lat, lon] | null (non trovato)
 
   // ---------------------------------------------------------------
   // Mappa
@@ -58,26 +64,29 @@
 
   function popupNode(c) {
     const card = el('div', 'card');
-    card.append(el('div', 'k', (c.sources || []).join(' · ')), el('div', 'n', c.name), el('div', 'm', SSGeo.place(c)));
+    card.append(el('div', 'k', (c.sources || []).join(' · ')), el('div', 'n', c.name));
+    if (c.address) card.append(el('div', 'm', c.address));
+    card.append(el('div', 'm', SSGeo.place(c)));
     const sector = [c.business, c.businessDesc].filter(Boolean).join(' — ');
     if (sector) card.append(el('div', 'm', sector));
 
     const list = c.jobList || [];
     if (list.length) {
-      const apps = el('div', 'apps');
+      const rows = el('div', 'jobs');
       for (const j of list.slice(0, 5)) {
-        const row = el('div', 'app');
+        const row = el('div', 'job');
         row.append(el('strong', '', j.title || 'Ruolo n/d'));
         const meta = [j.location, j.salary, j.score != null ? j.score + '%' : ''].filter(Boolean).join(' · ');
         if (meta) row.append(el('br'), meta);
         const u = safeUrl(j.url);
         if (u) { row.append(' · '); row.append(link(u, 'annuncio')); }
-        apps.append(row);
+        rows.append(row);
       }
-      card.append(apps);
+      card.append(rows);
       if (list.length > 5) card.append(el('div', 'more', `+${list.length - 5} altri`));
     }
     if (c.geo && c.geo.approx) card.append(el('div', 'm approx', 'Posizione approssimata'));
+    else if (exact && c.geo && !c.geo.exact) card.append(el('div', 'm approx', 'Posizione della città'));
 
     const links = el('div', 'links');
     const site = safeUrl(c.url), li = safeUrl(c.linkedin);
@@ -93,7 +102,7 @@
     visible = [];
     const seen = new Map();
     for (const c of companies) {
-      if (!matches(c)) continue;
+      if (!c.geo || !matches(c)) continue; // senza posizione: solo nel conteggio
       const key = c.geo.lat.toFixed(4) + ',' + c.geo.lon.toFixed(4);
       const k = (seen.get(key) || 0) + 1;
       seen.set(key, k);
@@ -180,9 +189,11 @@
     }
 
     const merged = SSGeo.mergeSites(entries);
-    companies = merged.map((c) => ({ ...c, geo: SSGeo.locate(c.city, c.country, table) }));
+    companies = merged.map((c) => ({ ...c, geo: null }));
+    relocate();
     refreshSelects();
     render();
+    if (exact) geocodeQueue();
 
     const hasAny = companies.length > 0;
     $('map').hidden = !hasAny;
@@ -190,6 +201,50 @@
     $('legend').hidden = !hasAny;
     if (hasAny && !keepView) fit();
     updateLegend();
+  }
+
+  /** Ricalcola le posizioni: indirizzo geocodificato (solo con «Indirizzi esatti») o città. */
+  function relocate() {
+    for (const c of companies) c.geo = SSGeo.resolve(c, table, exact ? geocache : null);
+  }
+
+  // ---------------------------------------------------------------
+  // Geocodifica degli indirizzi (opzionale)
+  // ---------------------------------------------------------------
+  let geoRun = 0; // incrementato per interrompere un giro in corso (toggle spento, nuovo load)
+
+  function geoStatus(text, warn) {
+    const s = $('geoStatus');
+    s.hidden = !text;
+    s.textContent = text || '';
+    s.classList.toggle('warn', !!warn);
+  }
+
+  /** Indirizzi non ancora in cache, uno alla volta; la mappa si aggiorna a ogni risultato senza spostare la vista. */
+  async function geocodeQueue() {
+    const run = ++geoRun;
+    const todo = [...new Set(companies.map(SSGeo.addressQuery).filter((q) => q && !(q in geocache)))];
+    if (!todo.length) { geoStatus(''); return; }
+    for (let i = 0; i < todo.length; i++) {
+      if (run !== geoRun) return;
+      geoStatus(`Indirizzi ${i + 1}/${todo.length}…`);
+      const t0 = Date.now();
+      try {
+        const res = await fetch(SSGeo.geocodeUrl(todo[i]), { headers: { Accept: 'application/json' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        geocache[todo[i]] = SSGeo.parseGeocode(await res.json());
+      } catch (e) {
+        if (run === geoRun) geoStatus('Indirizzi: servizio non raggiungibile, uso le città', true);
+        return;
+      }
+      if (run !== geoRun) return;
+      await chrome.storage.local.set({ [GEO_CACHE_KEY]: geocache });
+      relocate();
+      render();
+      const wait = GEOCODE_GAP_MS - (Date.now() - t0);
+      if (wait > 0 && i < todo.length - 1) await new Promise((r) => setTimeout(r, wait));
+    }
+    if (run === geoRun) geoStatus('');
   }
 
   function updateLegend() {
@@ -226,6 +281,16 @@
   });
   $('fit').addEventListener('click', fit);
 
+  $('f-exact').addEventListener('change', (e) => {
+    exact = e.target.checked;
+    chrome.storage.local.set({ [MAP_OPTIONS_KEY]: { exact } });
+    geoRun++;
+    geoStatus('');
+    relocate();
+    render();
+    if (exact) geocodeQueue();
+  });
+
   // Vista iniziale solo quando il contenitore ha dimensioni reali (prima il fit sbaglia zoom)
   let fitted = false;
   new ResizeObserver(([en]) => {
@@ -245,6 +310,10 @@
   (async function init() {
     await SSSites.migrateFlatKeys(chrome.storage.local).catch(() => { /* ritenta alla prossima apertura */ });
     table = await fetch(chrome.runtime.getURL('cities.json')).then((r) => r.json());
+    const saved = await chrome.storage.local.get([GEO_CACHE_KEY, MAP_OPTIONS_KEY]);
+    geocache = saved[GEO_CACHE_KEY] || {};
+    exact = !!(saved[MAP_OPTIONS_KEY] && saved[MAP_OPTIONS_KEY].exact);
+    $('f-exact').checked = exact;
     await load(false);
   })();
 })();

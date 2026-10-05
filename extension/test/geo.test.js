@@ -95,6 +95,47 @@ test('merge: aziende diverse restano separate e ordinate per nome', () => {
   assert.deepEqual(rows[0].sources, ['StepStone']);
 });
 
+test('addressQuery: indirizzo + Paese; vuoto senza indirizzo o se è solo la città', () => {
+  assert.equal(G.addressQuery({ address: 'HDI-Platz 1,  Hannover', city: 'Hannover', country: 'Germania' }), 'HDI-Platz 1, Hannover, Germania');
+  assert.equal(G.addressQuery({ address: 'Via Roma 1, Torino, Italia', city: 'Torino', country: 'Italia' }), 'Via Roma 1, Torino, Italia');
+  assert.equal(G.addressQuery({ address: 'London', city: 'London', country: 'Regno Unito' }), '');
+  assert.equal(G.addressQuery({ address: '', city: 'Berlin', country: 'Germania' }), '');
+});
+
+test('geocodeUrl e parseGeocode (risposta Nominatim)', () => {
+  const u = new URL(G.geocodeUrl('HDI-Platz 1, Hannover'));
+  assert.equal(u.origin + u.pathname, G.GEOCODER_URL);
+  assert.equal(u.searchParams.get('q'), 'HDI-Platz 1, Hannover');
+  assert.equal(u.searchParams.get('limit'), '1');
+  assert.deepEqual(G.parseGeocode([{ lat: '52.3795', lon: '9.8125' }]), [52.3795, 9.8125]);
+  assert.equal(G.parseGeocode([]), null);
+  assert.equal(G.parseGeocode([{ lat: 'x', lon: '1' }]), null);
+  assert.equal(G.parseGeocode({ error: 'x' }), null);
+});
+
+test('resolve: indirizzo in cache → posizione esatta; senza cache o lontano dalla città → città', () => {
+  const c = { address: 'HDI-Platz 1, Hannover', city: 'Hannover', country: 'Germania' };
+  const q = G.addressQuery(c);
+  const byCity = G.locate('Hannover', 'Germania', TABLE);
+  assert.deepEqual(G.resolve(c, TABLE, null), byCity);
+  assert.deepEqual(G.resolve(c, TABLE, {}), byCity);
+  assert.deepEqual(G.resolve(c, TABLE, { [q]: null }), byCity);
+  assert.deepEqual(G.resolve(c, TABLE, { [q]: [52.3795, 9.8125] }), { lat: 52.3795, lon: 9.8125, approx: false, exact: true });
+  // omonimo in un altro Paese: scartato
+  assert.deepEqual(G.resolve(c, TABLE, { [q]: [40.7, -74] }), byCity);
+  // città non in tabella (solo Paese, approx): l'indirizzo vince
+  const far = { address: 'Hauptstr. 3, 99999 Kleinstadt', city: 'Kleinstadt', country: 'Germania' };
+  assert.equal(G.resolve(far, TABLE, { [G.addressQuery(far)]: [50.1, 10.2] }).exact, true);
+  assert.ok(G.distanceKm([52.52, 13.405], [48.137, 11.575]) > 480 && G.distanceKm([52.52, 13.405], [48.137, 11.575]) < 520);
+});
+
+test('merge: l\'indirizzo passa dalle righe aziende alla mappa', () => {
+  const rows = G.mergeSites([{ site: stepstone, host: 'www.stepstone.de', jobs: [
+    job('HDI AG', { companyId: '9', companyInfo: { id: '9', address: 'HDI-Platz 1, Hannover', city: 'Hannover', country: 'DE', industries: [] } })
+  ] }]);
+  assert.equal(rows[0].address, 'HDI-Platz 1, Hannover');
+});
+
 test('cities.json: chiavi già normalizzate e coordinate valide', () => {
   for (const group of ['cities', 'countries']) {
     for (const [k, p] of Object.entries(TABLE[group])) {
