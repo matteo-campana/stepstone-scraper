@@ -1,0 +1,12 @@
+{
+  "name": "stepstone-scraper-screenshots",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "description": "Genera gli screenshot della documentazione con dati dimostrativi (Playwright + chrome.* simulato).",
+  "scripts": { "screenshots": "node screenshots.js" },
+  "devDependencies": {
+    "playwright": "^1.56.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  }
+}

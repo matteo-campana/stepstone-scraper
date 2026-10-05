@@ -143,6 +143,8 @@
         // senza paese dall'azienda: dall'ultima parte del luogo se il sito lo permette (LinkedIn: "Roma, Lazio, Italia")
         country: (!info.country && site && site.countryFromLocation && site.countryFromLocation(fullLoc)) || countryName(info.country, hostName),
         city: info.city || firstLoc,
+        // indirizzo della sede (StepStone/TotalJobs), usato dalla mappa con «Indirizzi esatti»
+        address: info.address || '',
         jobs: list.length,
         maxScore: scores.length ? Math.max(...scores) : null,
         employees: info.employees || '',
