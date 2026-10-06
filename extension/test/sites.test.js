@@ -84,7 +84,7 @@ function test(name, fn) {
     assert.equal(Sites.resultsKey('totaljobs'), 'results:totaljobs');
     assert.equal(Sites.stateKey(Sites.byId('stepstone')), 'scrapeState:stepstone');
     assert.deepEqual(Sites.allCacheKeys().sort(),
-      ['results:linkedin', 'results:stepstone', 'results:totaljobs', 'scrapeState:linkedin', 'scrapeState:stepstone', 'scrapeState:totaljobs']);
+      ['results:indeed', 'results:linkedin', 'results:stepstone', 'results:totaljobs', 'results:workday-leonardo', 'scrapeState:indeed', 'scrapeState:linkedin', 'scrapeState:stepstone', 'scrapeState:totaljobs', 'scrapeState:workday-leonardo']);
   });
 
   await test('manifest ⟷ registro: stessi host in host_permissions e content_scripts', () => {

@@ -8,6 +8,8 @@ totaljobs-result-page.html
 totaljobs-job-detail-page.html
 linkedin-page.html
 linkedin-job-detail-page.html
+indeed-result.html
+indeed-job-detail.html
 linkedin-result-frame.html
 *.saved.html
 example/**/*

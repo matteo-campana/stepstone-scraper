@@ -13,9 +13,9 @@
   /** Giorni lavorativi/anno per annualizzare una tariffa giornaliera (stima: ~200–230 reali). */
   const WORK_DAYS_PER_YEAR = 220;
   const CURRENCY_SYMBOL = { EUR: '€', GBP: '£', USD: '$', CHF: 'CHF' };
-  const DAY_RE = /\bper day\b|\bday rate\b|\bdaily\b|\/ ?day\b|\bper diem\b|\bpro tag\b|\btagessatz\b|\bpar jour\b|\bper dag\b/;
-  const MONTH_RE = /monat|month|mois|maand/;
-  const HOUR_RE = /stunde|hour|heure|uur/;
+  const DAY_RE = /\bper day\b|\bday rate\b|\bdaily\b|\/ ?day\b|\bper diem\b|\bpro tag\b|\btagessatz\b|\bpar jour\b|\bper dag\b|\bal giorno\b|\bgiornalier|\b(?:al|por) d[ií]a\b/;
+  const MONTH_RE = /monat|month|mois|maand|\bal mese\b|\bmensil|\bmes\b/;
+  const HOUR_RE = /stunde|hour|heure|uur|(?:all|l)['’]ora\b|\bpor hora\b/;
 
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const norm = (s) => (s || '').toLowerCase().normalize('NFKC');

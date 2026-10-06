@@ -22,10 +22,10 @@ revisioni e in ogni altra discussione, critica il codice e non le persone.
 
 ### Dati e chiavi che non vanno nel repository
 
-L'estensione lavora su pagine di StepStone e TotalJobs, quindi presta attenzione a cosa
+L'estensione lavora su pagine di StepStone, TotalJobs, LinkedIn e Indeed, quindi presta attenzione a cosa
 committi:
 
-- **Non committare pagine salvate dei siti** (StepStone, TotalJobs) (HTML di ricerca o di dettaglio): contengono
+- **Non committare pagine salvate dei siti** (StepStone, TotalJobs, LinkedIn, Indeed) (HTML di ricerca o di dettaglio): contengono
   chiavi pubbliche di terzi (analytics, Google…) che innescano gli alert di secret scanning
   di GitHub, oltre a dati personali come cookie, ID utente e annunci. Tienile in una cartella
   esterna e indicala con `SCRAPER_FIXTURES` (vedi [README](README.md#test-dei-parser)).
@@ -38,7 +38,7 @@ committi:
 
 ### Segnalare un problema
 
-Apri una issue indicando: sito e dominio (StepStone `.de`, `.at`…, TotalJobs), tipo di pagina (ricerca o
+Apri una issue indicando: sito e dominio (StepStone `.de`, `.at`…, TotalJobs, LinkedIn, Indeed), tipo di pagina (ricerca o
 dettaglio), versione di Chrome, cosa ti aspettavi e cosa è successo. Se l'estrazione
 non funziona, copia gli **avvisi gialli** mostrati nel popup: dicono quale selettore
 manca. Se il sito ha cambiato l'HTML, spesso basta aggiornare

@@ -1,6 +1,6 @@
-# Job Scraper & Matcher (StepStone · TotalJobs · LinkedIn)
+# Job Scraper & Matcher (StepStone · TotalJobs · LinkedIn · Indeed · Leonardo)
 
-Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone, TotalJobs o LinkedIn**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende**, la mostra su una **mappa** e permette di esportare tutto in **XLSX**, CSV e JSON.
+Estensione Chrome (Manifest V3) che legge gli annunci di una **pagina di ricerca StepStone, TotalJobs, LinkedIn, Indeed o del career site Leonardo (Workday)**, li confronta con il tuo **profilo** (skill, esperienza, posizione, stipendio, località) e assegna a ciascuno un **punteggio di affinità** da 0 a 100. Dagli stessi risultati ricava anche la **lista delle aziende**, la mostra su una **mappa** e permette di esportare tutto in **XLSX**, CSV e JSON.
 
 Siti supportati:
 
@@ -9,6 +9,8 @@ Siti supportati:
 | **StepStone** | `www.stepstone.de`, `.at`, `.be`, `.nl`, `.fr` | EUR | Profilo azienda `/cmp/…`, stipendi spesso stimati. |
 | **TotalJobs** | `www.totaljobs.com` | GBP | Stesso design system (`data-at`), stipendio in `job-item-salary-info`, spesso come tariffa giornaliera; ID azienda in `?cmpId=`. |
 | **LinkedIn** | `www.linkedin.com` | dal testo | Lettura **guidata** (scorre la lista e clicca «Avanti»), ritmo ridotto, max 40 pagine. Vedi la sezione LinkedIn qui sotto. |
+| **Indeed** | `it`, `de`, `fr`, `es`, `nl`, `at`, `ch`, `be`, `uk``.indeed.com` | dal testo (EUR/GBP) | Lettura **guidata**: preme «Mostra più annunci» finché il pulsante sparisce (max 40 clic), poi legge tutte le card; ritmo ridotto. Nessun settore né dipendenti dell'azienda. Vedi sotto. |
+| **Leonardo (Workday)** | `leonardocompany.wd3.myworkdayjobs.com` | EUR | Lettura **guidata**: clicca «next» pagina per pagina (20 annunci a pagina, max 60 pagine). Azienda sempre Leonardo (sede e settore fissi); il dettaglio non si scarica con fetch, quindi «arricchisci» non ha effetto. Vedi sotto. |
 
 <p align="center">
   <img src="docs/screenshots/popup-annunci.png" alt="Popup, scheda Annunci: opzioni di estrazione, export e tabella ordinata per affinità" width="260">
@@ -43,6 +45,20 @@ docs/
 ├── screenshots/      Immagini usate in questo README
 └── tools/            Script Playwright che le rigenera (dati dimostrativi)
 ```
+
+### Indeed: cosa è verificato
+
+- **Verificati su pagine salvate** (`indeed-job-detail.html`, `indeed-result.html`, dominio `it.indeed.com`): dettaglio (JSON-LD `JobPosting` + stato `preloadedVJData`) e card della lista (`div.cardOutline`, `data-jk`, `data-testid` `company-name` / `text-location`, stipendio in `.salary-snippet-container`).
+- **Elenco completo**: la ricerca mostra solo una parte degli annunci; il resto compare premendo `button[data-cy="show-more"]` («Mostra più annunci»). L'estensione lo preme da sola e si ferma quando sparisce, la lista non cresce più (timeout 10 s) o dopo 40 clic. Questo comportamento è verificato solo con un test simulato: la pagina salvata (il feed della home) non contiene il pulsante né il conteggio dei risultati. Se non legge tutto, controlla `results.moreButton` in `sites.js`.
+- **Anti-bot**: Indeed può rispondere 403/captcha alle richieste parallele; compaiono negli avvisi gialli e non vengono aggirati.
+- Testi di date e stipendi verificati solo in italiano; gli altri domini condividono i selettori ma non sono provati.
+
+### Leonardo (Workday): cosa è verificato
+
+- **Verificati su pagine salvate** (`workday-leonardo.html`, `workday-leonardo-job-detail.html`): card della lista (`<li>` figli di `section[data-automation-id="jobResults"] > ul`, con `jobTitle`, `locations`, `postedOn`), conteggio (`jobFoundText`), pulsante `stepToNextButton` e dettaglio (`jobPostingHeader`, `job-posting-details`, `jobPostingDescription`).
+- **ID annuncio** = codice requisizione (`R0032358`), ricavato dall'URL. Il luogo «IT - Roma - Via Tiburtina» diventa «Roma» (estero: «Varsavia, PL»).
+- **Paginazione**: la ricerca è un'app a pagina singola; l'estensione clicca «next» e aspetta che la lista cambi. L'ultima pagina è stimata da «OFFERTE DI LAVORO TROVATE: N» / 20. Il clic è verificato solo con un test simulato.
+- **Dettaglio**: Workday disegna la pagina nel browser, quindi un `fetch` non trova il testo; il parser del dettaglio funziona solo sulla pagina aperta. Per altri tenant Workday basta copiare la voce `workday-leonardo` in `sites.js` con un altro host e `fixedCompany`.
 
 ### LinkedIn: come funziona e cosa è verificato
 
@@ -218,7 +234,7 @@ Particolarità note, verificate sulle pagine di riferimento:
 
 ### Test dei parser
 
-I test verificano i selettori su pagine salvate (una di ricerca e una di dettaglio per sito, alcuni MB, **non incluse nel repository**). Nomi attesi: `stepston-result-page.html` e `stepstone-job-detail-page.html` (StepStone), `totaljobs-result-page.html` e `totaljobs-job-detail-page.html` (TotalJobs), `linkedin-job-detail-page.html` e `linkedin-page.html` (LinkedIn; la lista è in un iframe, vedi sopra), opzionale `linkedin-result-frame.html`. Si cercano in `SCRAPER_FIXTURES` (o `STEPSTONE_FIXTURES`, per compatibilità), poi nella radice del repo e in `example/`; i blocchi di test senza le loro pagine vengono saltati.
+I test verificano i selettori su pagine salvate (una di ricerca e una di dettaglio per sito, alcuni MB, **non incluse nel repository**). Nomi attesi: `stepston-result-page.html` e `stepstone-job-detail-page.html` (StepStone), `totaljobs-result-page.html` e `totaljobs-job-detail-page.html` (TotalJobs), `indeed-result.html` e `indeed-job-detail.html` (Indeed), `workday-leonardo.html` e `workday-leonardo-job-detail.html` (Leonardo), `linkedin-job-detail-page.html` e `linkedin-page.html` (LinkedIn; la lista è in un iframe, vedi sopra), opzionale `linkedin-result-frame.html`. Si cercano in `SCRAPER_FIXTURES` (o `STEPSTONE_FIXTURES`, per compatibilità), poi nella radice del repo e in `example/`; i blocchi di test senza le loro pagine vengono saltati.
 
 ```bash
 cd extension/test
@@ -248,7 +264,7 @@ Dopo una modifica all'interfaccia rigenera le immagini e controllale prima del c
 
 - L'estensione lavora **solo nel tuo browser**, con la tua sessione, e non invia dati a server esterni. Richieste verso terzi: le tessere della pagina **Mappa**, scaricate da `server.arcgisonline.com` solo quando la apri, e, solo se attivi *Indirizzi esatti*, la ricerca degli indirizzi delle sedi su Nominatim (vedi [Mappa aziende](#4b-mappa-aziende)).
 - Le pagine successive, i dettagli e le schede azienda vengono scaricati in parallelo (default 5 richieste contemporanee) con brevi pause casuali (≈ 0,15–0,4 s) e ritentativo su 429/503. Non alzare in modo aggressivo le richieste in parallelo: i siti possono limitare o bloccare traffico anomalo. Tetto di sicurezza: 200 pagine per ricerca.
-- Verifica che l'uso sia coerente con i **Termini di servizio di StepStone, TotalJobs e LinkedIn** (quelli di LinkedIn vietano l'estrazione automatica: vedi sopra); lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
+- Verifica che l'uso sia coerente con i **Termini di servizio di StepStone, TotalJobs, LinkedIn e Indeed** (quelli di LinkedIn vietano l'estrazione automatica: vedi sopra); lo strumento è pensato per uso personale nella ricerca di lavoro, non per raccolta massiva o rivendita dei dati.
 - Non è prevista la lettura di pagine caricate solo a scorrimento (infinite scroll): StepStone usa paginazione classica (`?page=N`), gestita via URL.
 - Permessi richiesti: `storage` (profilo e risultati), `activeTab` + `scripting` (iniettare il content script in schede già aperte), accesso ai soli domini supportati elencati sopra.
 
@@ -269,7 +285,7 @@ In pratica: se modifichi l'estensione e la distribuisci, o la metti a disposizio
 attraverso una rete (clausola AGPL §13), devi rendere disponibile il codice sorgente della tua
 versione con la stessa licenza.
 
-StepStone, TotalJobs e LinkedIn sono marchi dei rispettivi titolari; questo progetto è indipendente e non è affiliato né
-approvato da StepStone, TotalJobs o LinkedIn.
+StepStone, TotalJobs, LinkedIn e Indeed sono marchi dei rispettivi titolari; questo progetto è indipendente e non è affiliato né
+approvato da StepStone, TotalJobs, LinkedIn o Indeed.
 
 Vuoi contribuire? Leggi [CONTRIBUTING.md](CONTRIBUTING.md).

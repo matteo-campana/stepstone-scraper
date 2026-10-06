@@ -25,6 +25,8 @@ const FIXTURES = {
   stepstone: { result: 'stepston-result-page.html', detail: 'stepstone-job-detail-page.html' },
   totaljobs: { result: 'totaljobs-result-page.html', detail: 'totaljobs-job-detail-page.html' },
   // LinkedIn: la lista sta in un iframe (non incluso nel salvataggio): 'resultFrame' e' opzionale, 'page' e' la ricerca senza lista
+  workday: { result: 'workday-leonardo.html', detail: 'workday-leonardo-job-detail.html' },
+  indeed: { result: 'indeed-result.html', detail: 'indeed-job-detail.html' },
   linkedin: { resultFrame: 'linkedin-result-frame.html', page: 'linkedin-page.html', detail: 'linkedin-job-detail-page.html' }
 };
 

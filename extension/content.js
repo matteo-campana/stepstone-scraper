@@ -216,6 +216,12 @@
         contractType: '', workType: '', description: '', requirements: ''
       };
       job.currency = job.salary ? Match.detectCurrency(job.salary, SITE.currency) : '';
+      if (SITE.fixedCompany && !job.company) { // career site aziendale: le card non riportano il nome
+        job.company = SITE.fixedCompany.name;
+        job.companyUrl = job.companyUrl || SITE.fixedCompany.url || '';
+        job.companyId = job.companyId || SITE.fixedCompany.id || '';
+        job.companyInfo = { ...SITE.fixedCompany, industries: (SITE.fixedCompany.industries || []).slice() };
+      }
       if (SITE.splitLocation) { const sl = SITE.splitLocation(job.location); job.location = sl.location; job.remote = job.remote || sl.remote; }
       if (SITE.canonicalUrl && job.id) job.url = SITE.canonicalUrl(job.url, job.id);
       if (!job.title) miss('title (results.title)');
@@ -501,6 +507,7 @@
 
     const { profile = {} } = await chrome.storage.local.get('profile');
     if (SITE.paging === 'dom') return scrapeByDriving(opts, warnings, href, profile);
+    if (SITE.paging === 'more') return scrapeByLoadMore(opts, warnings, href, profile);
     const pg = getPagination(document, href);
 
     // --- pagina corrente: DOM live
@@ -574,7 +581,7 @@
 
 
     // --- arricchimento opzionale con le pagine di dettaglio
-    if (opts.enrich && !state.cancel) {
+    if (opts.enrich && !state.cancel && SITE.fetchDetails !== false) {
       let done = 0;
       await runPool(jobs.filter((j) => j.url), async (job) => {
         try {
@@ -707,9 +714,9 @@
     const info0 = readPageInfo(root);
     let start = 0;
     try { start = parseInt(new URL(href).searchParams.get('start'), 10) || 0; } catch (e) { /* noop */ }
-    let page = info0 ? info0.current : Math.floor(start / 25) + 1; // si parte dalla pagina aperta e si va solo avanti
+    let page = info0 ? info0.current : Math.floor(start / (SITE.pageSize || 25)) + 1; // si parte dalla pagina aperta e si va solo avanti
     const firstPage = page;
-    const declaredLast = info0 ? info0.total : (totalResults ? Math.ceil(totalResults / 25) : null);
+    const declaredLast = info0 ? info0.total : (totalResults ? Math.ceil(totalResults / (SITE.pageSize || 25)) : null);
     const guessPages = declaredLast ? Math.min(declaredLast, firstPage + maxPages - 1) : null;
 
     const progress = () => setState({ status: 'running', text: `Pagina ${page}${guessPages ? '/' + guessPages : ''}…`, done: page, total: guessPages || page + 1 });
@@ -725,6 +732,7 @@
       if (page - firstPage + 1 >= maxPages) { warnings.push(`Lette ${maxPages} pagine: mi fermo (limite di sicurezza per ${SITE.label}).`); break; }
       const info = readPageInfo(root);
       if (info && info.current >= info.total) break; // ultima pagina dichiarata dal sito
+      if (!info && SITE.pageSize && declaredLast && page >= declaredLast) break; // ultima pagina stimata dal conteggio
       const btn = nextButton(root);
       if (!btn) break; // ultima pagina
       const before = firstCardId(root);
@@ -741,6 +749,50 @@
     return finishScrape({ byPage, failedPages, totalResults, opts, warnings, href, profile });
   }
 
+
+  /**
+   * Siti con un solo elenco che cresce (Indeed: pulsante "Mostra più annunci"): si clicca il pulsante finché
+   * sparisce o la lista smette di crescere, poi si leggono tutte le card insieme come un'unica pagina.
+   */
+  async function scrapeByLoadMore(opts, warnings, href, profile) {
+    const byPage = new Map();
+    const failedPages = [];
+    const maxClicks = SITE.maxPages || MAX_PAGES;
+    const timing = { wait: 10000, ...(opts._timing || {}) }; // _timing/_pause: solo per i test
+    const pause = opts._pause || SITE.pause || [1500, 3500];
+    const root = rootOf(document);
+    const count = () => queryAllFirst(root, SEL.results.card).length;
+    const moreButton = () => {
+      const b = queryFirst(root, SEL.results.moreButton || []);
+      return b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' ? b : null;
+    };
+
+    let clicks = 0;
+    const progress = () => setState({ status: 'running', text: `Caricamento annunci: ${count()} (clic ${clicks})…`, done: clicks, total: clicks + 1 });
+    await progress();
+
+    while (!state.cancel) {
+      const btn = moreButton();
+      if (!btn) break; // lista completa
+      if (clicks >= maxClicks) { warnings.push(`Premuto "mostra altri" ${maxClicks} volte: mi fermo (limite di sicurezza per ${SITE.label}).`); break; }
+      const before = count();
+      if (btn.scrollIntoView) btn.scrollIntoView({ block: 'center' });
+      btn.click();
+      clicks++;
+      const grew = await waitFor(() => count() > before, timing.wait);
+      if (!grew) {
+        if (!state.cancel) warnings.push(`La lista non è cresciuta dopo "mostra altri" (timeout): lette solo le ${before} card caricate.`);
+        break;
+      }
+      await progress();
+      await jitter(pause[0], pause[1]);
+    }
+
+    const found = parseResultCards(root, href, warnings);
+    if (found.length) byPage.set(1, found);
+    else { failedPages.push(1); warnings.push('Nessun annuncio letto (lista non caricata o HTML cambiato).'); }
+    return finishScrape({ byPage, failedPages, totalResults: null, opts, warnings, href, profile });
+  }
 
   // ---------------------------------------------------------------
   // 5. EVIDENZIAZIONE E MESSAGGISTICA

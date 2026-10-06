@@ -9,6 +9,10 @@
  * Ganci opzionali per i siti che non seguono il flusso standard (tutti con un default in content.js):
  *   getRoot(doc)            dove stanno le card (documento, iframe, shadow root)
  *   paging                  'fetch' (default: scarica le altre pagine) | 'dom' (guida la pagina: scorre e clicca "Avanti")
+ *                           | 'more' (un solo elenco: clicca "mostra altri" finché sparisce, selettore results.moreButton)
+ *   pageSize                annunci per pagina del sito (paging 'dom'): serve a stimare le pagine totali (default 25)
+ *   fixedCompany            azienda unica del sito (career site aziendale: le card non riportano il nome)
+ *   fetchDetails            false = il dettaglio non è scaricabile con fetch (pagina disegnata dal browser): niente "arricchisci"
  *   detectPageType(doc, c)  'results' | 'detail' | null (null = logica standard)
  *   parseDetail(doc, url)   parser del dettaglio alternativo
  *   jobIdFromCard(card)     ID annuncio dalla card (prima di id e URL)
@@ -30,15 +34,18 @@
 
   const m1 = (re) => (u) => (String(u || '').match(re) || [])[1] || '';
 
-  /** Scheda azienda di TotalJobs: oggetto "reduxPreloadedState" nello script inline della pagina di dettaglio. */
-  function extractReduxState(doc) {
-    const key = '"reduxPreloadedState"';
+  /** Oggetto JSON `"<key>": {…}` negli script inline della pagina (null se assente o non è un oggetto). */
+  function extractInlineObject(doc, name) {
+    const key = '"' + name + '"';
     for (const sc of doc.querySelectorAll('script:not([src])')) {
       const t = sc.textContent;
       const i = t.indexOf(key);
       if (i < 0) continue;
-      const start = t.indexOf('{', i + key.length);
-      if (start < 0) continue;
+      const colon = t.indexOf(':', i + key.length);
+      if (colon < 0) continue;
+      let start = colon + 1;
+      while (start < t.length && t.charCodeAt(start) <= 32) start++;
+      if (t[start] !== '{') continue;
       let depth = 0, inStr = false, esc = false;
       for (let k = start; k < t.length; k++) {
         const c = t[k];
@@ -52,6 +59,9 @@
     }
     return null;
   }
+
+  /** Stato Redux di TotalJobs ("reduxPreloadedState"). */
+  const extractReduxState = (doc) => extractInlineObject(doc, 'reduxPreloadedState');
 
   function totaljobsCompany(doc) {
     const st = extractReduxState(doc);
@@ -160,6 +170,156 @@
         id: slug, name: company, url: companyUrl, address: '', city: '', country: '',
         employees, industries: industry ? [industry] : [], industriesFromCompany: !!industry
       }
+    };
+  }
+
+  // ---------------------------------------------------------------
+  //  Indeed
+  //  - Dettaglio (/viewjob?jk=<id>): verificato su example/indeed-job-detail.html. Fonti: JSON-LD JobPosting,
+  //    stato "preloadedVJData" (script inline) e data-testid stabili ("vj-job-title", "company-info-metadata").
+  //  - Card (div.cardOutline, data-jk, data-testid company-name/text-location): verificate su example/indeed-result.html.
+  //  - Elenco completo: il pulsante button[data-cy="show-more"] ("Mostra più annunci") aggiunge altre card (HTML fornito
+  //    dall'utente); la pagina salvata non lo contiene, quindi il clic è verificato solo con un test simulato.
+  //    Stipendio e contratto sono nella card, la data no.
+  // ---------------------------------------------------------------
+  const INDEED_HOSTS = ['it', 'de', 'fr', 'es', 'nl', 'at', 'ch', 'be', 'uk'];
+  const INDEED_COUNTRY = { it: 'IT', de: 'DE', fr: 'FR', es: 'ES', nl: 'NL', at: 'AT', ch: 'CH', be: 'BE', uk: 'GB' };
+
+  /** Prima occorrenza di `key` nell'oggetto (ricerca in profondità, limitata). */
+  function deepPick(x, key, depth) {
+    if (x == null || typeof x !== 'object' || (depth || 0) > 8) return undefined;
+    if (Object.prototype.hasOwnProperty.call(x, key) && x[key] != null) return x[key];
+    for (const v of Object.values(x)) {
+      const r = deepPick(v, key, (depth || 0) + 1);
+      if (r !== undefined) return r;
+    }
+    return undefined;
+  }
+
+  /** HTML della descrizione → testo, con uno spazio tra blocchi e voci di elenco. */
+  function htmlToText(html) {
+    return String(html || '')
+      .replace(/<\/(p|li|div|h\d|ul|ol)>|<br\s*\/?>/gi, ' ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  // "Lavoro da casa" / "Da remoto" al posto del luogo nelle card
+  const INDEED_REMOTE = /^(lavoro da casa|da remoto|remoto|telelavoro|smart ?working|home ?office|remote|work from home|teletrabajo)$/i;
+
+  /** Dettaglio Indeed → stessa forma di parseDetail di content.js. */
+  function indeedDetail(doc, baseUrl) {
+    let jp = null;
+    for (const s of doc.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        const data = JSON.parse(s.textContent);
+        const items = Array.isArray(data) ? data : data['@graph'] || [data];
+        jp = items.find((x) => x && x['@type'] === 'JobPosting');
+        if (jp) break;
+      } catch (e) { /* JSON non valido: prossimo */ }
+    }
+    jp = jp || {};
+    const vj = extractInlineObject(doc, 'preloadedVJData') || {};
+    const txt = (sel) => { const e = doc.querySelector(sel); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
+
+    const org = jp.hiringOrganization || {};
+    const loc = Array.isArray(jp.jobLocation) ? jp.jobLocation[0] : jp.jobLocation;
+    const addr = (loc && loc.address) || {};
+    const company = txt('[data-testid="company-info-metadata"] a[href*="/cmp/"]') || deepPick(vj, 'companyName') || org.name || '';
+
+    // stipendio: testo del sito ("45.000 € - 50.000 € all'anno") con ripiego sul JSON-LD
+    let salary = txt('[data-testid="structured-job-summary"] [aria-label*="€"], [data-testid="structured-job-summary"] [aria-label*="£"]')
+      || (deepPick(vj, 'salary') && typeof deepPick(vj, 'salary') === 'string' ? deepPick(vj, 'salary') : '');
+    let currency = '';
+    const bs = jp.baseSalary;
+    if (bs && bs.value) {
+      const v = bs.value, lo = v.minValue ?? v.value, hi = v.maxValue ?? v.value;
+      if (!salary && (lo || hi)) salary = (lo && hi && lo !== hi ? `${lo} - ${hi}` : String(lo || hi)) + (bs.currency ? ' ' + bs.currency : '') + (v.unitText ? ' / ' + String(v.unitText).toLowerCase() : '');
+      if (bs.currency) currency = String(bs.currency).toUpperCase();
+    }
+
+    const types = deepPick(vj, 'jobTypes');
+    const contractType = Array.isArray(types) && types.length ? types.map((t) => t && t.label).filter(Boolean).join('; ') : '';
+    const remote = deepPick(vj, 'remoteWorkModel');
+    const age = deepPick(vj, 'hiringInsightsModel');
+    const benefits = deepPick(vj, 'benefits');
+    const empl = jp.employmentType;
+
+    const cmpLink = doc.querySelector('[data-testid="company-info-metadata"] a[href*="/cmp/"]');
+    const cmpHref = (cmpLink && cmpLink.getAttribute('href')) || deepPick(vj, 'companyOverviewLink') || org.sameAs || '';
+    let slug = '', companyUrl = '';
+    try {
+      const u = new URL(cmpHref, baseUrl || 'https://it.indeed.com/');
+      const m = u.pathname.match(/\/cmp\/([^/]+)/);
+      if (m) { slug = m[1]; companyUrl = u.origin + '/cmp/' + slug; }
+    } catch (e) { /* url non valido */ }
+
+    const heading = doc.querySelector('[data-testid="vj-job-description-heading"]');
+    const domDesc = heading && heading.parentElement ? htmlToText(heading.parentElement.innerHTML.replace(/<h4[\s\S]*?<\/h4>/i, '')) : '';
+
+    return {
+      title: txt('[data-testid="vj-job-title"]') || jp.title || deepPick(vj, 'jobTitle') || '',
+      company,
+      location: deepPick(vj, 'formattedLocation') || deepPick(vj, 'jobLocation') || addr.addressLocality || '',
+      contractType,
+      workType: (remote && remote.text) || (jp.jobLocationType === 'TELECOMMUTE' ? 'Remoto' : ''),
+      employmentType: Array.isArray(empl) ? empl.join('; ') : (empl || ''),
+      postedAt: jp.datePosted || (age && age.age) || '',
+      salary, currency,
+      description: htmlToText(jp.description) || domDesc,
+      requirements: '',
+      benefits: Array.isArray(benefits) ? benefits.join('; ') : '',
+      companyInfo: {
+        id: slug, name: company, url: companyUrl, address: '', city: addr.addressLocality || '', country: addr.addressCountry || '',
+        employees: '', industries: [], industriesFromCompany: false
+      }
+    };
+  }
+
+  // ---------------------------------------------------------------
+  //  Workday — career site Leonardo (leonardocompany.wd3.myworkdayjobs.com)
+  //  Verificato su example/workday-leonardo.html (lista, 20 card/pagina) e workday-leonardo-job-detail.html.
+  //  Workday disegna tutto lato browser: il dettaglio NON è scaricabile con fetch (fetchDetails: false) e
+  //  l'azienda è sempre Leonardo (fixedCompany). Appigli stabili: data-automation-id (le classi css-xxxx sono hash).
+  //  Altri tenant Workday: copiare questo sito con un altro host/fixedCompany.
+  // ---------------------------------------------------------------
+  const WD_REQ = /_(R\d{4,})(?:-\d+)?(?:[/?#]|$)/;
+  const wdText = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
+  const wdIdFromUrl = (u) => (String(u || '').match(WD_REQ) || [])[1] || '';
+  const WD_COUNTRY = { IT: 'Italia', GB: 'Regno Unito', UK: 'Regno Unito', PL: 'Polonia', US: 'Stati Uniti', DE: 'Germania', FR: 'Francia', ES: 'Spagna', AU: 'Australia' };
+
+  const WD_COMPANY = {
+    id: 'leonardo', name: 'Leonardo', url: 'https://www.leonardo.com/', address: 'Piazza Monte Grappa 4, Roma',
+    city: 'Roma', country: 'IT', employees: '', industries: ['Aerospazio, Difesa e Sicurezza'], industriesFromCompany: true
+  };
+
+  /** "IT - Roma - Via Tiburtina KM12,400" → "Roma" (fuori Italia: "Varsavia, PL"); "2 Locations" resta com'è. */
+  function wdLocation(loc) {
+    const parts = String(loc || '').split(/\s+-\s+/).map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 2 || !/^[A-Z]{2}$/.test(parts[0])) return String(loc || '').trim();
+    return parts[0] === 'IT' ? parts[1] : parts[1] + ', ' + parts[0];
+  }
+
+  /** Valore (<dd>) del campo `data-automation-id="<id>"` dentro `scope`. */
+  const wdField = (scope, id) => wdText(scope.querySelector('[data-automation-id="' + id + '"] dd'));
+
+  /** Dettaglio Workday → stessa forma di parseDetail di content.js. */
+  function workdayDetail(doc) {
+    const box = doc.querySelector('[data-automation-id="job-posting-details"]') || doc;
+    const desc = box.querySelector('[data-automation-id="jobPostingDescription"]');
+    return {
+      title: wdText(doc.querySelector('[data-automation-id="jobPostingHeader"]')),
+      company: WD_COMPANY.name,
+      location: wdLocation(wdField(box, 'locations')),
+      contractType: '',
+      workType: '',
+      employmentType: wdField(box, 'time'),
+      postedAt: wdField(box, 'postedOn'),
+      salary: '', currency: '',
+      description: desc ? htmlToText(desc.innerHTML) : '',
+      requirements: '', benefits: '',
+      companyInfo: { ...WD_COMPANY, industries: WD_COMPANY.industries.slice() }
     };
   }
 
@@ -291,6 +451,164 @@
           scrollContainer: ['.scaffold-layout__list', '.jobs-search-results-list']
         }
       })
+    },
+    {
+      id: 'indeed',
+      label: 'Indeed',
+      hostRe: new RegExp('^(' + INDEED_HOSTS.join('|') + ')\\.indeed\\.com$', 'i'),
+      matches: INDEED_HOSTS.map((t) => `https://${t}.indeed.com/*`),
+      baseUrl: 'https://it.indeed.com/',
+      currency: 'EUR',
+      locale: 'it',
+      cardIdPrefix: '',
+      pageTotalSlack: 2,
+      country: (host) => INDEED_COUNTRY[(String(host || '').match(/^(\w+)\.indeed\.com$/) || [])[1]] || '',
+      companyIdFromUrl: m1(/\/cmp\/([^/?#]+)/),
+      jobIdFromUrl: m1(/[?&](?:jk|vjk|fromjk)=([0-9a-f]{16})/i),
+      extractCompany: null,
+
+      // --- ganci (vedi intestazione)
+      paging: 'more', // la ricerca mostra pochi annunci e il resto arriva col pulsante "Mostra più annunci"
+      maxConcurrency: 2,
+      pause: [1500, 3500],
+      maxPages: 40, // clic massimi su "Mostra più annunci"
+      note: 'Indeed: lettura guidata (preme "Mostra più annunci" finché ce ne sono). Tieni la scheda aperta sulla ricerca; ci vuole qualche secondo per clic.',
+      detectPageType(doc, ctx) {
+        if (/\/viewjob\b/.test(String(ctx.url || ''))) return 'detail';
+        if (ctx.cards()) return 'results';
+        return null;
+      },
+      parseDetail: indeedDetail,
+      splitLocation(loc) { const x = String(loc || '').trim(); return { location: x, remote: INDEED_REMOTE.test(x) ? x : '' }; },
+      jobIdFromCard(card) { return card.getAttribute('data-jk') || (card.querySelector('[data-jk]') || { getAttribute: () => '' }).getAttribute('data-jk') || ''; },
+      findCard(doc, id) { const a = doc.querySelector('[data-jk="' + id + '"]'); return a && (a.closest('li, .job_seen_beacon') || a); },
+      canonicalUrl(url, id) {
+        try { return id ? new URL(url).origin + '/viewjob?jk=' + id : url; } catch (e) { return url; }
+      },
+
+      selectors: mergeSelectors(BASE, {
+        results: {
+          // Card verificate su example/indeed-result.html (feed "annunci per te": stessa struttura mosaic-provider-jobcards
+          // della ricerca). Le classi css-xxxx sono hash: si usano solo classi/data-testid semantici.
+          container: ['#mosaic-provider-jobcards-1', '#mosaic-provider-jobcards'],
+          card: ['div.cardOutline', 'div.job_seen_beacon'],
+          title: ['h3.jobTitle a[data-jk]', 'a.jcs-JobTitle', 'h2.jobTitle'],
+          company: ['[data-testid="company-name"]'],
+          location: ['[data-testid="text-location"]'],
+          salary: ['.salary-snippet-container', '[data-testid*="salary-snippet"]'],
+          postedAt: [],
+          companyLink: [],
+          remote: [],
+          snippet: [],
+          badges: [],
+          topLabel: [],
+          pagination: [],
+          paginationStatus: [],
+          totalCount: [],
+          moreButton: ['button[data-cy="show-more"]']
+        },
+        detail: {
+          title: ['[data-testid="vj-job-title"]'],
+          company: ['[data-testid="company-info-metadata"] a[href*="/cmp/"]'],
+          companyLink: ['[data-testid="company-info-metadata"] a[href*="/cmp/"]'],
+          description: ['[data-testid="vj-job-description-heading"]'],
+          requirements: [],
+          benefits: [],
+          workType: [],
+          contractType: [],
+          postedAt: [],
+          salary: [],
+          location: []
+        }
+      })
+    }
+    ,
+    {
+      id: 'workday-leonardo',
+      label: 'Leonardo (Workday)',
+      hostRe: /^leonardocompany\.wd3\.myworkdayjobs\.com$/i,
+      matches: ['https://leonardocompany.wd3.myworkdayjobs.com/*'],
+      baseUrl: 'https://leonardocompany.wd3.myworkdayjobs.com/',
+      currency: 'EUR',
+      locale: 'it',
+      cardIdPrefix: '',
+      pageTotalSlack: 2,
+      country: () => 'IT',
+      companyIdFromUrl: () => '',
+      jobIdFromUrl: wdIdFromUrl,
+      extractCompany: null,
+
+      // --- ganci (vedi intestazione)
+      paging: 'dom', // la ricerca è un'app a pagina singola: si clicca "next" come l'utente
+      pageSize: 20,
+      fixedCompany: WD_COMPANY,
+      fetchDetails: false,
+      maxConcurrency: 2,
+      pause: [1500, 3500],
+      maxPages: 60,
+      note: 'Leonardo (Workday): lettura guidata (clicca "next" pagina per pagina). Tieni la scheda aperta sulla ricerca; il dettaglio degli annunci non viene scaricato.',
+      detectPageType(doc, ctx) {
+        if (doc.querySelector('[data-automation-id="jobPostingPage"], [data-automation-id="jobPostingHeader"]')) return 'detail';
+        if (ctx.cards()) return 'results';
+        return null;
+      },
+      parseDetail: workdayDetail,
+      // ID = codice requisizione (R0032358): sta nell'URL della card e nel campo "subtitle"
+      jobIdFromCard(card) {
+        const a = card.querySelector('a[data-automation-id="jobTitle"]');
+        const fromUrl = a ? wdIdFromUrl(a.getAttribute('href')) : '';
+        if (fromUrl) return fromUrl;
+        const req = wdText(card.querySelector('[data-automation-id="subtitle"] li'));
+        return /^R\d{4,}$/.test(req) ? req : '';
+      },
+      findCard(doc, id) {
+        for (const a of doc.querySelectorAll('a[data-automation-id="jobTitle"]')) {
+          if (wdIdFromUrl(a.getAttribute('href')) === id) return a.closest('li');
+        }
+        return null;
+      },
+      splitLocation(loc) { return { location: wdLocation(loc), remote: '' }; },
+      countryFromLocation(loc) {
+        const p = String(loc || '').split(',').map((x) => x.trim());
+        return p.length > 1 ? (WD_COUNTRY[p[p.length - 1]] || '') : '';
+      },
+
+      selectors: mergeSelectors(BASE, {
+        results: {
+          container: ['section[data-automation-id="jobResults"]'],
+          // le card sono <li> senza attributi propri: figli diretti dell'elenco "Page N of M"
+          card: ['section[data-automation-id="jobResults"] > ul > li', 'ul[aria-label^="Page"] > li'],
+          title: ['a[data-automation-id="jobTitle"]'],
+          company: [],
+          companyLink: [],
+          location: ['[data-automation-id="locations"] dd'],
+          remote: [],
+          snippet: [],
+          postedAt: ['[data-automation-id="postedOn"] dd'],
+          badges: [],
+          topLabel: [],
+          salary: [],
+          totalCount: ['[data-automation-id="jobFoundText"]'], // "OFFERTE DI LAVORO TROVATE: 736"
+          pagination: [],
+          paginationStatus: [],
+          excludeAncestor: [],
+          nextButton: ['nav[aria-label="pagination"] button[data-uxi-widget-type="stepToNextButton"]', 'nav[aria-label="pagination"] button[aria-label="next"]'],
+          scrollContainer: []
+        },
+        detail: {
+          title: ['[data-automation-id="jobPostingHeader"]'],
+          company: [],
+          companyLink: [],
+          location: ['[data-automation-id="job-posting-details"] [data-automation-id="locations"] dd'],
+          contractType: [],
+          workType: [],
+          postedAt: ['[data-automation-id="postedOn"] dd'],
+          salary: [],
+          description: ['[data-automation-id="jobPostingDescription"]'],
+          requirements: [],
+          benefits: []
+        }
+      })
     }
   ];
 
@@ -326,7 +644,7 @@
     return true;
   }
 
-  const api = { SITES, DEFAULT, LEGACY_KEYS, mergeSelectors, forHost, forUrl, byId, resultsKey, stateKey, allCacheKeys, hostList, migrateFlatKeys, extractReduxState };
+  const api = { SITES, DEFAULT, LEGACY_KEYS, mergeSelectors, forHost, forUrl, byId, resultsKey, stateKey, allCacheKeys, hostList, migrateFlatKeys, extractReduxState, extractInlineObject };
   root.SSSites = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
